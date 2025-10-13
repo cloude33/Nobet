@@ -624,7 +624,7 @@ private fun ArifeDayAdjustmentsCard(
             modifier = Modifier.padding(16.dp)
         ) {
             Text(
-                "⚠️ Arife Günü Saat Ayarları",
+                "⚠️ Tatil Günü Saat Ayarları",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.tertiary
@@ -656,7 +656,7 @@ private fun ArifeDayAdjustmentsCard(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "Arife günlerinde nöbetler maksimum 5 saat olarak hesaplanır.",
+                "Tatil günlerinde nöbetler maksimum 5 saat olarak hesaplanır.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
@@ -743,7 +743,8 @@ private fun getArifeDayAdjustments(vm: ScheduleViewModel, month: YearMonth): Lis
     return generateSequence(start) { it.plusDays(1) }
         .takeWhile { !it.isAfter(end) }
         .filter { date ->
-            vm.schedule[date] != null && vm.isArifeDayRule(date)
+            // Only include dates that actually have shifts and have special holiday rules applied
+            vm.schedule.containsKey(date) && vm.isSpecialHolidayRule(date)
         }
         .map { date -> date to vm.getEffectiveHoursForDate(date) }
         .toList()

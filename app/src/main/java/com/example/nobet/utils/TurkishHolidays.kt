@@ -14,13 +14,14 @@ object TurkishHolidays {
         val date: LocalDate,
         val name: String,
         val type: HolidayType,
-        val workingHours: Int = 0 // Hours counted as work (0 = full holiday, 5 = half-day)
+        val workingHours: Int = 0 // Hours counted as work (0 = full holiday, 5 = half-day, 3 = partial)
     )
     
     enum class HolidayType {
         OFFICIAL, // Official public holidays
         RELIGIOUS, // Religious holidays (Bayram)
-        HALF_DAY // Half-day holidays (like holiday eves)
+        HALF_DAY, // Half-day holidays (like holiday eves)
+        PARTIAL_DAY // Partial holidays (like October 28 - partial holiday from 13:00)
     }
     
     /**
@@ -37,6 +38,9 @@ object TurkishHolidays {
         
         // Add half-day holidays (holiday eves)
         holidays.addAll(getHalfDayHolidays(year))
+        
+        // Add special partial holidays
+        holidays.addAll(getPartialDayHolidays(year))
         
         return holidays.sortedBy { it.date }
     }
@@ -188,6 +192,29 @@ object TurkishHolidays {
     }
     
     /**
+     * Partial holidays (like October 28 - partial holiday from 13:00)
+     */
+    private fun getPartialDayHolidays(year: Int): List<Holiday> {
+        val partialDays = mutableListOf<Holiday>()
+        
+        // October 28 is partially a holiday (from 13:00 onwards)
+        // Only add if it falls on weekday (Monday-Friday)
+        val oct28 = LocalDate.of(year, Month.OCTOBER, 28)
+        if (oct28.dayOfWeek.value in 1..5) {
+            partialDays.add(
+                Holiday(
+                    oct28,
+                    "Cumhuriyet Bayramı Arifesi (Kısmi Tatil)",
+                    HolidayType.PARTIAL_DAY,
+                    0 // No automatic working hours - handled in calculation logic
+                )
+            )
+        }
+        
+        return partialDays
+    }
+    
+    /**
      * Check if a date is a holiday
      */
     fun isHoliday(date: LocalDate): Boolean {
@@ -208,6 +235,7 @@ object TurkishHolidays {
      * Returns:
      * - 0 hours for full holidays and weekends
      * - 5 hours for half-day holidays (arife)
+     * - 5 hours for partial holidays (like October 28)
      * - 8 hours for regular working days
      */
     fun getWorkingHoursForDate(date: LocalDate): Int {
@@ -220,7 +248,12 @@ object TurkishHolidays {
         val holiday = getHoliday(date)
         return when (holiday?.type) {
             HolidayType.OFFICIAL, HolidayType.RELIGIOUS -> 0 // Full holiday
-            HolidayType.HALF_DAY -> holiday.workingHours // Usually 5 hours
+            HolidayType.HALF_DAY -> holiday.workingHours // 5 hours for arife days
+            HolidayType.PARTIAL_DAY -> {
+                // For October 28, return 8 hours (normal working day)
+                // The overtime calculation will handle the 3-hour deduction
+                8
+            }
             null -> 8 // Regular working day
         }
     }

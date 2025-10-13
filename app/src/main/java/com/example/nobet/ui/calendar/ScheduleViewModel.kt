@@ -12,13 +12,14 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
+// Data sınıfları...
 data class OvertimeResult(
     val workedHours: Int,
     val overtimeHours: Int,
     val workingDays: Int,
     val expectedHours: Int,
-    val holidayHours: Int, // Hours from holidays (e.g., arife = 5 hours)
-    val totalExpectedHours: Int // expectedHours + holidayHours
+    val holidayHours: Int,
+    val totalExpectedHours: Int
 )
 
 data class MonthlyStatistics(
@@ -47,12 +48,12 @@ class ScheduleViewModel : ViewModel() {
     private var sharedPreferences: SharedPreferences? = null
     private var notificationScheduler: NotificationScheduler? = null
     private var shiftTypeConfig: ShiftTypeConfig? = null
-    
+
     companion object {
         private const val PREFS_NAME = "nobet_schedule_prefs"
         private const val SCHEDULE_KEY = "schedule_data"
     }
-    
+
     fun initializeWithContext(context: Context) {
         try {
             if (sharedPreferences == null) {
@@ -66,27 +67,24 @@ class ScheduleViewModel : ViewModel() {
             }
             loadScheduleFromPrefs()
         } catch (e: Exception) {
-            // Handle initialization error gracefully
             e.printStackTrace()
         }
     }
-    
+
     private fun loadScheduleFromPrefs() {
         try {
             sharedPreferences?.getString(SCHEDULE_KEY, null)?.let { json ->
                 fromJson(json)
             }
         } catch (e: Exception) {
-            // Handle load error gracefully - keep existing schedule if any
             e.printStackTrace()
         }
     }
-    
+
     private fun saveScheduleToPrefs() {
         try {
             sharedPreferences?.edit()?.putString(SCHEDULE_KEY, toJson())?.apply()
         } catch (e: Exception) {
-            // Handle save error gracefully
             e.printStackTrace()
         }
     }
@@ -94,37 +92,16 @@ class ScheduleViewModel : ViewModel() {
     fun set(date: LocalDate, type: ShiftType?) {
         try {
             val oldType = schedule[date]
-            
             if (type == null) {
                 schedule.remove(date)
-                // Cancel notifications for removed shift
-                oldType?.let { 
-                    try {
-                        notificationScheduler?.cancelAllRemindersForShift(date, it)
-                    } catch (e: Exception) {
-                        // Handle notification cancellation error gracefully
-                    }
-                }
+                oldType?.let { try { notificationScheduler?.cancelAllRemindersForShift(date, it) } catch (e: Exception) {} }
             } else {
                 schedule[date] = type
-                // Cancel old notifications and schedule new ones
-                oldType?.let { 
-                    try {
-                        notificationScheduler?.cancelAllRemindersForShift(date, it)
-                    } catch (e: Exception) {
-                        // Handle notification cancellation error gracefully
-                    }
-                }
-                try {
-                    notificationScheduler?.scheduleAllRemindersForShift(date, type)
-                } catch (e: Exception) {
-                    // Handle notification scheduling error gracefully
-                }
+                oldType?.let { try { notificationScheduler?.cancelAllRemindersForShift(date, it) } catch (e: Exception) {} }
+                try { notificationScheduler?.scheduleAllRemindersForShift(date, type) } catch (e: Exception) {}
             }
-            
-            saveScheduleToPrefs() // Auto-save after each change
+            saveScheduleToPrefs()
         } catch (e: Exception) {
-            // Handle general set operation error gracefully
             e.printStackTrace()
         }
     }
@@ -139,184 +116,110 @@ class ScheduleViewModel : ViewModel() {
             val type = object : TypeToken<Map<String, String>>() {}.type
             val parsed: Map<String, String> = gson.fromJson(json, type)
             val mapped = mutableMapOf<LocalDate, ShiftType>()
-
             parsed.forEach { (key, value) ->
                 try {
                     val date = LocalDate.parse(key)
-                    val shiftType = when (value) {
-                        "MORNING" -> ShiftType.MORNING
-                        "NIGHT" -> ShiftType.NIGHT
-                        "FULL" -> ShiftType.FULL
-                        else -> null
-                    }
-                    if (shiftType != null) {
-                        mapped[date] = shiftType
-                    }
-                } catch (e: Exception) {
-                    // Geçersiz veri varsa yoksay
-                }
+                    val shiftType = ShiftType.valueOf(value)
+                    mapped[date] = shiftType
+                } catch (e: Exception) {}
             }
-
             schedule.clear()
             schedule.putAll(mapped)
-            saveScheduleToPrefs() // Save after importing
-        } catch (e: Exception) {
-            // JSON parse hatası durumunda hiçbir şey yapma
-        }
+            saveScheduleToPrefs()
+        } catch (e: Exception) {}
     }
 
+    // Sadece girilen nöbetlerin ham saat toplamını döndürür.
     fun totalFor(month: YearMonth): Int {
         val start = month.atDay(1)
         val end = month.atEndOfMonth()
         return generateSequence(start) { it.plusDays(1) }
             .takeWhile { !it.isAfter(end) }
-            .sumOf { date ->
-                val shiftHours = schedule[date]?.let { shiftType -> 
-                    getHoursForShiftType(shiftType)
-                } ?: 0
-                
-                // Apply special calculation for arife (holiday eve) days
-                if (shiftHours > 0) {
-                    val holidayInfo = getHolidayInfo(date)
-                    if (holidayInfo?.type == TurkishHolidays.HolidayType.HALF_DAY) {
-                        // On arife days, any shift counts as maximum 5 hours
-                        minOf(shiftHours, 5)
-                    } else {
-                        shiftHours
-                    }
-                } else {
-                    0
-                }
-            }
+            .sumOf { date -> schedule[date]?.let { getHoursForShiftType(it) } ?: 0 }
     }
 
-    fun overtimeFor(month: YearMonth): Int {
-        val start = month.atDay(1)
-        val end = month.atEndOfMonth()
-
-        val normalHours = generateSequence(start) { it.plusDays(1) }
-            .takeWhile { !it.isAfter(end) }
-            .sumOf { date ->
-                TurkishHolidays.getWorkingHoursForDate(date)
-            }
-
-        val realHours = totalFor(month)
-        return (realHours - normalHours).coerceAtLeast(0)
-    }
-
+    // Fazla mesaiyi "aylık kota" mantığına göre hesaplayan son ve doğru fonksiyon
     fun calculateOvertime(month: YearMonth): OvertimeResult {
-        val start = month.atDay(1)
-        val end = month.atEndOfMonth()
-
-        // Count actual working days (excluding weekends and full holidays)
-        val workingDays = generateSequence(start) { it.plusDays(1) }
-            .takeWhile { !it.isAfter(end) }
-            .count { date ->
-                val workingHours = TurkishHolidays.getWorkingHoursForDate(date)
-                workingHours == 8 // Only count full working days
-            }
-
-        // Calculate holiday hours (from arife days)
-        val holidayHours = generateSequence(start) { it.plusDays(1) }
-            .takeWhile { !it.isAfter(end) }
-            .sumOf { date ->
-                val workingHours = TurkishHolidays.getWorkingHoursForDate(date)
-                if (workingHours > 0 && workingHours < 8) workingHours else 0 // Only partial work days
-            }
-
-        // Calculate total expected hours for the month (including both full and partial working days)
-        val totalExpectedHours = generateSequence(start) { it.plusDays(1) }
-            .takeWhile { !it.isAfter(end) }
-            .sumOf { date ->
-                TurkishHolidays.getWorkingHoursForDate(date)
-            }
-
+        // 1. Ay boyunca tutulan tüm nöbetlerin ham saat toplamını al.
         val workedHours = totalFor(month)
-        val expectedHours = workingDays * 8
+
+        // 2. O ay çalışılması gereken toplam zorunlu saati hesapla (örn: Ekim için 173).
+        val totalExpectedHours = month.atDay(1).let { start ->
+            val end = month.atEndOfMonth()
+            generateSequence(start) { it.plusDays(1) }
+                .takeWhile { !it.isAfter(end) }
+                .sumOf { TurkishHolidays.getWorkingHoursForDate(it) }
+        }
+
+        // 3. Fazla mesaiyi hesapla: Toplam çalışılan saat, zorunlu saati aşıyorsa aradaki farktır.
         val overtimeHours = (workedHours - totalExpectedHours).coerceAtLeast(0)
 
+        // Sonuçları doğru şekilde döndür.
         return OvertimeResult(
             workedHours = workedHours,
             overtimeHours = overtimeHours,
-            workingDays = workingDays,
-            expectedHours = expectedHours,
-            holidayHours = holidayHours,
+            workingDays = 0, // Bu alanlar artık kullanılmıyor, 0 kalabilir.
+            expectedHours = 0,
+            holidayHours = 0,
             totalExpectedHours = totalExpectedHours
         )
     }
-    
-    // Notification management methods
+
+    /**
+     * Bir tarihin, fazla mesai hesaplamasını etkileyen kısmi veya yarım gün bir tatil olup olmadığını kontrol eder.
+     * Sadece o güne bir nöbet girilmişse ve o gün zorunlu mesai varsa (0'dan büyük ama 8'den küçük) true döner.
+     */
+    fun isSpecialHolidayRule(date: LocalDate): Boolean {
+        if (!schedule.containsKey(date)) return false
+        val expectedWork = TurkishHolidays.getWorkingHoursForDate(date)
+        // Eğer o gün zorunlu mesai varsa (0 < saat < 8) ve nöbet tutulmuşsa, bu özel bir kuraldır.
+        return expectedWork > 0 && expectedWork < 8
+    }
+
+    /**
+     * Bir tarihteki nöbetin, o günkü fazla mesaiye ne kadar katkı sağladığını hesaplar.
+     * NOT: Bu fonksiyon artık ana hesaplamada kullanılmıyor, sadece UI'da detay göstermek için var.
+     * Ana hesaplama aylık kotaya göre yapılır.
+     */
+    fun getEffectiveHoursForDate(date: LocalDate): Int {
+        if (!schedule.containsKey(date)) return 0
+        val shift = schedule[date] ?: return 0
+        val shiftHours = getHoursForShiftType(shift)
+        val expectedWork = TurkishHolidays.getWorkingHoursForDate(date)
+        // Fazla mesai = Çalışılan Saat - O Gün Beklenen Saat
+        return (shiftHours - expectedWork).coerceAtLeast(0)
+    }
+
     fun setNotificationsEnabled(enabled: Boolean) {
         notificationScheduler?.setNotificationsEnabled(enabled)
         if (enabled) {
-            // Re-schedule all existing shifts
-            schedule.forEach { (date, type) ->
-                try {
-                    notificationScheduler?.scheduleAllRemindersForShift(date, type)
-                } catch (e: Exception) {
-                    // Handle notification scheduling error gracefully
-                    e.printStackTrace()
-                }
-            }
+            schedule.forEach { (date, type) -> try { notificationScheduler?.scheduleAllRemindersForShift(date, type) } catch (e: Exception) { e.printStackTrace() } }
         } else {
-            // Cancel all existing notifications
-            schedule.forEach { (date, type) ->
-                try {
-                    notificationScheduler?.cancelAllRemindersForShift(date, type)
-                } catch (e: Exception) {
-                    // Handle notification cancellation error gracefully
-                    e.printStackTrace()
-                }
-            }
+            schedule.forEach { (date, type) -> try { notificationScheduler?.cancelAllRemindersForShift(date, type) } catch (e: Exception) { e.printStackTrace() } }
         }
     }
-    
-    fun areNotificationsEnabled(): Boolean {
-        return notificationScheduler?.isNotificationEnabled() ?: false
-    }
-    
+
+    fun areNotificationsEnabled(): Boolean = notificationScheduler?.isNotificationEnabled() ?: false
+
     fun setReminderDays(days: Int) {
         notificationScheduler?.setReminderDays(days)
-        // Reschedule all notifications with new days
         if (areNotificationsEnabled()) {
             schedule.forEach { (date, type) ->
                 try {
                     notificationScheduler?.cancelAllRemindersForShift(date, type)
                     notificationScheduler?.scheduleAllRemindersForShift(date, type)
-                } catch (e: Exception) {
-                    // Handle notification rescheduling error gracefully
-                    e.printStackTrace()
-                }
+                } catch (e: Exception) { e.printStackTrace() }
             }
         }
     }
-    
-    fun getReminderDays(): Int {
-        return notificationScheduler?.getReminderDays() ?: 1
-    }
-    
-    // Holiday helper methods
-    fun getHolidaysForMonth(month: YearMonth): List<TurkishHolidays.Holiday> {
-        return TurkishHolidays.getHolidaysForMonth(month.year, month.month)
-    }
-    
-    fun isHoliday(date: LocalDate): Boolean {
-        return TurkishHolidays.isHoliday(date)
-    }
-    
-    fun getHolidayInfo(date: LocalDate): TurkishHolidays.Holiday? {
-        return TurkishHolidays.getHoliday(date)
-    }
-    
-    // ShiftType configuration methods
-    fun getShiftTypeConfig(): ShiftTypeConfig? {
-        return shiftTypeConfig
-    }
-    
-    fun getCurrentShiftTypes(): List<DynamicShiftType> {
-        return shiftTypeConfig?.getCurrentShiftTypes() ?: emptyList()
-    }
-    
+
+    fun getReminderDays(): Int = notificationScheduler?.getReminderDays() ?: 1
+    fun getHolidaysForMonth(month: YearMonth): List<TurkishHolidays.Holiday> = TurkishHolidays.getHolidaysForMonth(month.year, month.month)
+    fun isHoliday(date: LocalDate): Boolean = TurkishHolidays.isHoliday(date)
+    fun getHolidayInfo(date: LocalDate): TurkishHolidays.Holiday? = TurkishHolidays.getHoliday(date)
+    fun getShiftTypeConfig(): ShiftTypeConfig? = shiftTypeConfig
+    fun getCurrentShiftTypes(): List<DynamicShiftType> = shiftTypeConfig?.getCurrentShiftTypes() ?: emptyList()
+
     fun getHoursForShiftType(shiftType: ShiftType): Int {
         return when (shiftType) {
             ShiftType.MORNING -> shiftTypeConfig?.getMorningHours() ?: ShiftTypeConfig.DEFAULT_MORNING_HOURS
@@ -324,7 +227,7 @@ class ScheduleViewModel : ViewModel() {
             ShiftType.FULL -> shiftTypeConfig?.getFullHours() ?: ShiftTypeConfig.DEFAULT_FULL_HOURS
         }
     }
-    
+
     fun getLabelForShiftType(shiftType: ShiftType): String {
         return when (shiftType) {
             ShiftType.MORNING -> shiftTypeConfig?.getMorningLabel() ?: ShiftTypeConfig.DEFAULT_MORNING_LABEL
@@ -332,68 +235,28 @@ class ScheduleViewModel : ViewModel() {
             ShiftType.FULL -> shiftTypeConfig?.getFullLabel() ?: ShiftTypeConfig.DEFAULT_FULL_LABEL
         }
     }
-    
-    /**
-     * Get effective working hours for a shift on a specific date
-     * Applies arife day special rule: maximum 5 hours on holiday eves
-     */
-    fun getEffectiveHoursForDate(date: LocalDate): Int {
-        val shift = schedule[date] ?: return 0
-        val normalHours = getHoursForShiftType(shift)
-        
-        val holidayInfo = getHolidayInfo(date)
-        return if (holidayInfo?.type == TurkishHolidays.HolidayType.HALF_DAY) {
-            // On arife days, any shift counts as maximum 5 hours
-            minOf(normalHours, 5)
-        } else {
-            normalHours
-        }
-    }
-    
-    /**
-     * Check if a date has the arife day special rule applied
-     */
-    fun isArifeDayRule(date: LocalDate): Boolean {
-        if (schedule[date] == null) return false
-        val holidayInfo = getHolidayInfo(date)
-        return holidayInfo?.type == TurkishHolidays.HolidayType.HALF_DAY && 
-               getHoursForShiftType(schedule[date]!!) > 5
-    }
-    
-    // Bulk operations for settings
+
     fun addWorkingDaysToMonth(month: YearMonth, shiftType: ShiftType) {
         val start = month.atDay(1)
         val end = month.atEndOfMonth()
-        
         generateSequence(start) { it.plusDays(1) }
             .takeWhile { !it.isAfter(end) }
             .filter { date ->
-                // Only add to weekdays that are not holidays and don't already have shifts
                 val workingHours = TurkishHolidays.getWorkingHoursForDate(date)
-                workingHours == 8 && !schedule.containsKey(date) // Full working days without existing shifts
+                workingHours == 8 && !schedule.containsKey(date)
             }
-            .forEach { date ->
-                set(date, shiftType)
-            }
+            .forEach { date -> set(date, shiftType) }
     }
-    
+
     fun clearAllShiftsInMonth(month: YearMonth) {
         val start = month.atDay(1)
         val end = month.atEndOfMonth()
-        
-        val keysToRemove = schedule.keys.filter { date ->
-            date >= start && date <= end
-        }
-        
-        keysToRemove.forEach { date ->
-            set(date, null)
-        }
+        val keysToRemove = schedule.keys.filter { date -> date >= start && date <= end }
+        keysToRemove.forEach { date -> set(date, null) }
     }
-    
-    // Yearly statistics methods
+
     fun calculateYearlyStatistics(year: Int): YearlyStatistics {
         val yearMonths = (1..12).map { YearMonth.of(year, it) }
-        
         val monthlyData = yearMonths.map { month ->
             MonthlyStatistics(
                 month = month,
@@ -403,40 +266,27 @@ class ScheduleViewModel : ViewModel() {
                 workingDayDistribution = getWorkingDayDistributionForMonth(month)
             )
         }
-        
+
         val totalWorkedHours = monthlyData.sumOf { it.totalHours }
         val totalOvertimeHours = monthlyData.sumOf { it.overtimeResult.overtimeHours }
         val totalExpectedHours = monthlyData.sumOf { it.overtimeResult.totalExpectedHours }
-        
-        val yearlyShiftCounts = mutableMapOf<ShiftType, Int>()
-        ShiftType.values().forEach { shiftType ->
-            yearlyShiftCounts[shiftType] = monthlyData.sumOf { it.shiftCounts[shiftType] ?: 0 }
+
+        val yearlyShiftCounts = ShiftType.entries.associateWith { shiftType ->
+            monthlyData.sumOf { it.shiftCounts[shiftType] ?: 0 }
         }
-        
-        val yearlyWorkingDayDistribution = mutableMapOf<DayOfWeek, Int>()
-        DayOfWeek.values().forEach { dayOfWeek ->
-            yearlyWorkingDayDistribution[dayOfWeek] = monthlyData.sumOf { 
-                it.workingDayDistribution[dayOfWeek] ?: 0 
-            }
+
+        val yearlyWorkingDayDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
+            monthlyData.sumOf { it.workingDayDistribution[dayOfWeek] ?: 0 }
         }
-        
-        // Calculate yearly day shift distribution (08-16)
-        val yearlyDayShiftDistribution = mutableMapOf<DayOfWeek, Int>()
+
         val yearShifts = schedule.filter { (date, _) -> date.year == year }
-        DayOfWeek.values().forEach { dayOfWeek ->
-            yearlyDayShiftDistribution[dayOfWeek] = yearShifts.filter { (date, type) -> 
-                date.dayOfWeek == dayOfWeek && type == ShiftType.MORNING 
-            }.size
+        val yearlyDayShiftDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
+            yearShifts.count { (date, type) -> date.dayOfWeek == dayOfWeek && type == ShiftType.MORNING }
         }
-        
-        // Calculate yearly night shift distribution (16-08 & 08-08)
-        val yearlyNightShiftDistribution = mutableMapOf<DayOfWeek, Int>()
-        DayOfWeek.values().forEach { dayOfWeek ->
-            yearlyNightShiftDistribution[dayOfWeek] = yearShifts.filter { (date, type) -> 
-                date.dayOfWeek == dayOfWeek && (type == ShiftType.NIGHT || type == ShiftType.FULL)
-            }.size
+        val yearlyNightShiftDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
+            yearShifts.count { (date, type) -> date.dayOfWeek == dayOfWeek && (type == ShiftType.NIGHT || type == ShiftType.FULL) }
         }
-        
+
         return YearlyStatistics(
             year = year,
             totalWorkedHours = totalWorkedHours,
@@ -449,20 +299,18 @@ class ScheduleViewModel : ViewModel() {
             yearlyNightShiftDistribution = yearlyNightShiftDistribution
         )
     }
-    
+
     private fun getShiftCountsForMonth(month: YearMonth): Map<ShiftType, Int> {
         val monthShifts = schedule.filter { (date, _) -> YearMonth.from(date) == month }
-        return mapOf(
-            ShiftType.MORNING to monthShifts.filter { (_, type) -> type == ShiftType.MORNING }.size,
-            ShiftType.NIGHT to monthShifts.filter { (_, type) -> type == ShiftType.NIGHT }.size,
-            ShiftType.FULL to monthShifts.filter { (_, type) -> type == ShiftType.FULL }.size
-        )
+        return ShiftType.entries.associateWith { shiftType ->
+            monthShifts.count { (_, type) -> type == shiftType }
+        }
     }
-    
+
     private fun getWorkingDayDistributionForMonth(month: YearMonth): Map<DayOfWeek, Int> {
         val monthShifts = schedule.filter { (date, _) -> YearMonth.from(date) == month }
-        return DayOfWeek.values().associateWith { dayOfWeek ->
-            monthShifts.filter { (date, _) -> date.dayOfWeek == dayOfWeek }.size
+        return DayOfWeek.entries.associateWith { dayOfWeek ->
+            monthShifts.count { (date, _) -> date.dayOfWeek == dayOfWeek }
         }
     }
 }

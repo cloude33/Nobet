@@ -33,20 +33,20 @@ class NotificationScheduler(private val context: Context) {
     ): Boolean {
         try {
             if (!areNotificationsEnabled()) {
-                Log.w(TAG, "Notifications disabled, skipping schedule")
+                Log.w(TAG, "Notifications disabled, skipping schedule for $date ($shiftType)")
                 return false
             }
             
             // Check notification permissions
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-                Log.w(TAG, "Notification permission not granted")
+                Log.w(TAG, "Notification permission not granted for $date ($shiftType)")
                 return false
             }
             
             // Check exact alarm permission for Android 12+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (!alarmManager.canScheduleExactAlarms()) {
-                    Log.w(TAG, "Exact alarm permission not granted")
+                    Log.w(TAG, "Exact alarm permission not granted for $date ($shiftType)")
                     return false
                 }
             }
@@ -56,7 +56,7 @@ class NotificationScheduler(private val context: Context) {
             
             // Don't schedule if the reminder time is in the past
             if (reminderTime.isBefore(LocalDateTime.now())) {
-                Log.d(TAG, "Reminder time is in the past, skipping")
+                Log.d(TAG, "Reminder time is in the past for $date ($shiftType) - $reminderDays days before, skipping")
                 return false
             }
             
@@ -91,14 +91,14 @@ class NotificationScheduler(private val context: Context) {
                 )
             }
             
-            Log.d(TAG, "Scheduled reminder for $date ($shiftType) - $reminderDays days before")
+            Log.d(TAG, "Scheduled reminder for $date ($shiftType) - $reminderDays days before at $reminderTime")
             return true
             
         } catch (e: SecurityException) {
-            Log.e(TAG, "Permission denied for scheduling alarm", e)
+            Log.e(TAG, "Permission denied for scheduling alarm for $date ($shiftType)", e)
             return false
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule reminder", e)
+            Log.e(TAG, "Failed to schedule reminder for $date ($shiftType)", e)
             return false
         }
     }
@@ -119,12 +119,25 @@ class NotificationScheduler(private val context: Context) {
     fun scheduleAllRemindersForShift(date: LocalDate, shiftType: ShiftType): Boolean {
         val reminderDaysList = getReminderDaysList()
         var successCount = 0
+        val errors = mutableListOf<Exception>()
+        
         reminderDaysList.forEach { days ->
-            if (scheduleShiftReminder(date, shiftType, days)) {
-                successCount++
+            try {
+                if (scheduleShiftReminder(date, shiftType, days)) {
+                    successCount++
+                }
+            } catch (e: Exception) {
+                errors.add(e)
+                Log.e(TAG, "Failed to schedule reminder for $date ($shiftType) - $days days before", e)
             }
         }
-        Log.d(TAG, "Scheduled $successCount/${reminderDaysList.size} reminders for $date")
+        
+        if (errors.isNotEmpty()) {
+            Log.w(TAG, "Scheduled $successCount/${reminderDaysList.size} reminders for $date with ${errors.size} errors")
+        } else {
+            Log.d(TAG, "Scheduled $successCount/${reminderDaysList.size} reminders for $date")
+        }
+        
         return successCount > 0
     }
     
@@ -149,10 +162,9 @@ class NotificationScheduler(private val context: Context) {
     }
     
     private fun generateNotificationId(date: LocalDate, shiftType: ShiftType, reminderDays: Int): Int {
-        // Generate unique ID based on date, shift type, and reminder days
-        return (date.hashCode() + shiftType.hashCode() + reminderDays).let {
-            if (it < 0) -it else it
-        } % 100000 + NotificationHelper.NOTIFICATION_ID_BASE
+    // Daha güvenli ve çakışma olasılığı düşük ID generation
+    val baseId = (date.toEpochDay() + shiftType.ordinal * 100L + reminderDays * 10000L).toInt()
+    return (baseId and 0x7FFFFFFF) // Pozitif integer garantisi
     }
     
     private fun areNotificationsEnabled(): Boolean {
@@ -161,9 +173,12 @@ class NotificationScheduler(private val context: Context) {
     }
     
     private fun getReminderDaysList(): List<Int> {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val reminderDays = prefs.getInt(KEY_REMINDER_DAYS, 1)
-        return listOf(reminderDays) // For simplicity, using single reminder time for now
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val reminderDays = prefs.getInt(KEY_REMINDER_DAYS, 1)
+    
+    // Kullanıcı ayarına göre filtrele
+    return DEFAULT_REMINDER_DAYS.filter { it <= reminderDays }
+        .ifEmpty { listOf(reminderDays) } // En az bir reminder garantisi
     }
     
     fun setNotificationsEnabled(enabled: Boolean) {

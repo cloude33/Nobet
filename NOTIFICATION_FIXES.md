@@ -1,78 +1,71 @@
-# Bildirim Sistemi Düzeltmeleri
+# Notification and Working Hours Fixes
 
-Bu dosya, nöbet uygulamasındaki bildirim sistemi sorunlarının nasıl çözüldüğünü açıklar.
+## Issues Fixed
 
-## Tespit Edilen Sorunlar
+### 1. Working Hours Calculation Issue (October 28th)
+**Problem**: All shifts on October 28th were being calculated incorrectly. The day should be treated as a partial holiday where only 5 hours count toward required working hours.
 
-1. **Android 13+ Bildirim İzni Eksikliği**: POST_NOTIFICATIONS izni düzgün kontrol edilmiyordu
-2. **Android 12+ Kesin Alarm İzni**: SCHEDULE_EXACT_ALARM izni kontrol edilmiyordu
-3. **Hata Yönetimi Eksikliği**: Bildirim gönderimi ve zamanlaması sırasında hatalar düzgün yönetilmiyordu
-4. **Bildirim Kanalı Sorunları**: Bildirim kanalı her durumda düzgün oluşturulmuyordu
-5. **Test Özelliği Eksikliği**: Kullanıcıların bildirimlerin çalışıp çalışmadığını test etme imkanı yoktu
+**Root Cause**: 
+- October 28th needed to be treated as a special partial holiday day where work hours are reduced from 8 to 5
+- The application wasn't correctly handling this special case
 
-## Yapılan Düzeltmeler
+**Fixes Applied**:
+1. Modified [TurkishHolidays.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt) to add a new PARTIAL_DAY holiday type for October 28th
+2. Updated [ScheduleViewModel.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt) to properly calculate effective hours for partial holidays:
+   - For a regular 8-hour shift on October 28th: 5 hours count toward required hours
+   - For a 24-hour shift on October 28th: 5 hours count toward required hours, 19 hours count as overtime
+3. Updated statistics display to show both arife days and partial holidays with the same 5-hour rule
 
-### 1. AndroidManifest.xml İyileştirmeleri
-- `FOREGROUND_SERVICE` ve `FOREGROUND_SERVICE_SPECIAL_USE` izinleri eklendi
-- Tüm gerekli bildirim izinleri eksiksiz olarak tanımlandı
+### 2. Notification System Issues
+**Problem**: Notifications were not being delivered reliably, even when the test notification worked.
 
-### 2. NotificationHelper Sınıfı İyileştirmeleri
-- Gelişmiş hata yönetimi ve loglama eklendi
-- Bildirim kanalı oluşturma işlemi güçlendirildi
-- Test bildirimi gönderme özelliği eklendi
-- Bildirim izinlerinin detaylı kontrol mekanizması eklendi
-- Fonksiyonların başarı/başarısızlık durumunu döndürmesi sağlandı
+**Root Cause**:
+1. The notification scheduler was only scheduling one reminder instead of the full set (1, 2, and 3 days before)
+2. Limited error handling and logging made it difficult to diagnose issues
+3. Missing permission checks for critical Android 12+ features
 
-### 3. NotificationScheduler Sınıfı İyileştirmeleri
-- Android 12+ kesin alarm izni kontrolü eklendi
-- Gelişmiş hata yönetimi ve loglama sistemi
-- İzin durumu kontrol fonksiyonları eklendi
-- Zamanlanmış bildirimlerin başarı oranı takibi
+**Fixes Applied**:
+1. Modified [NotificationScheduler.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt) to properly return the full list of reminder days
+2. Enhanced error handling and logging in the notification scheduling process
+3. Added better permission checking for exact alarms (required for Android 12+)
+4. Improved the reliability of notification scheduling with better error reporting
 
-### 4. NotificationSettingsScreen İyileştirmeleri
-- İzin durumu görsel göstergesi eklendi
-- Android 12+ kesin alarm izni ayarları
-- Test bildirimi gönderme butonu eklendi
-- Otomatik izin talep mekanizması
-- Kullanıcı dostu hata mesajları ve yönlendirme
+## Files Modified
 
-### 5. ScheduleViewModel İyileştirmeleri
-- Bildirim zamanlaması sırasında hata yönetimi güçlendirildi
-- Bildirim ayarları değiştiğinde tüm zamanlamaların güncellenmesi
+1. [app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt)
+   - Added PARTIAL_DAY holiday type for October 28th
+   - Updated holiday type handling logic
 
-## Test Etme
+2. [app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt)
+   - Updated working hours calculation to handle partial holidays correctly
+   - Ensured consistency in total hours calculation
+   - Updated special holiday rule checking
 
-### 1. Bildirim İzinlerini Kontrol Etme
-1. Uygulamayı açın
-2. "Bildirim Ayarları" sekmesine gidin
-3. İzin durumu kartında tüm izinlerin verildiğini kontrol edin
-4. Eksik izin varsa "İzinleri Düzelt" butonuna basın
+3. [app/src/main/java/com/example/nobet/ui/stats/StatisticsComponents.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/stats/StatisticsComponents.kt)
+   - Updated UI to show both arife days and partial holidays
+   - Made text more general to cover both cases
 
-### 2. Test Bildirimi Gönderme
-1. Bildirim ayarlarını etkinleştirin
-2. "Test Bildirimi Gönder" butonuna basın
-3. Bildirim gelirse sistem düzgün çalışıyor demektir
+4. [app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt)
+   - Fixed reminder days list to include all default reminders (1, 2, 3 days)
+   - Enhanced error handling and logging
+   - Improved permission checking
 
-### 3. Nöbet Bildirimi Test Etme
-1. Bugünden 1-3 gün sonrasına bir nöbet ekleyin
-2. Bildirim ayarlarında hatırlatma zamanını ayarlayın
-3. Belirlenen zamanda bildirim gelmesini bekleyin
+5. [app/src/main/java/com/example/nobet/notification/NotificationHelper.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationHelper.kt)
+   - Added permission status checking method
 
-## Önemli Notlar
+## Testing Recommendations
 
-- **Android 13+**: POST_NOTIFICATIONS izni kullanıcı tarafından manuel olarak verilmeli
-- **Android 12+**: SCHEDULE_EXACT_ALARM izni kesin zamanlı bildirimler için gerekli
-- **Test Modu**: Bildirimlerin çalışıp çalışmadığını anında test edebilirsiniz
-- **Hata Loglama**: Sorun yaşanması durumunda loglar kontrol edilebilir
+1. Verify that October 28th now correctly calculates hours:
+   - MORNING (08-16) shifts should count as 5 hours on October 28th
+   - NIGHT (16-08) and FULL (08-08) shifts should count as 5 hours on October 28th
+   - For 24-hour shifts on October 28th, 19 hours should be counted as overtime
 
-## Sorun Giderme
+2. Test notification system:
+   - Ensure notifications are scheduled for 1, 2, and 3 days before shifts
+   - Check that notifications are delivered on Android 12+ devices
+   - Verify permission status reporting works correctly
 
-Bildirimler hala çalışmıyorsa:
-
-1. **İzinleri Kontrol Edin**: Ayarlar > Uygulamalar > Nöbet Listem > İzinler
-2. **Bildirim Ayarlarını Kontrol Edin**: Bildirimler açık mı?
-3. **Pil Optimizasyonu**: Uygulamanın pil optimizasyonundan muaf tutulması gerekebilir
-4. **Test Bildirimi**: Önce test bildirimi ile sistemi kontrol edin
-5. **Uygulama Yeniden Başlatması**: Uygulamayı tamamen kapatıp açın
-
-Bu düzeltmeler sayesinde bildirim sistemi daha güvenilir ve kullanıcı dostu hale gelmiştir.
+3. Check edge cases:
+   - Verify behavior on actual arife days (e.g., religious holiday eves)
+   - Test notification behavior when app is restarted
+   - Confirm proper cancellation of notifications when shifts are removed

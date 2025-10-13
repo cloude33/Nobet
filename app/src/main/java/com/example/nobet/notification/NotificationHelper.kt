@@ -168,4 +168,10 @@ class NotificationHelper(private val context: Context) {
             NOTIFICATION_ID_BASE + 999
         )
     }
+    
+    fun getPermissionStatus(): String {
+        val notificationEnabled = areNotificationsEnabled()
+        val channelEnabled = isChannelEnabled()
+        return "Notifications: $notificationEnabled, Channel: $channelEnabled"
+    }
 }
