@@ -4,13 +4,16 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.example.nobet.ui.calendar.ShiftType
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-import com.example.nobet.ui.calendar.ShiftType
 
 class NotificationScheduler(private val context: Context) {
     
@@ -24,6 +27,26 @@ class NotificationScheduler(private val context: Context) {
         
         // Default reminder times in days
         val DEFAULT_REMINDER_DAYS = listOf(1, 2, 3) // 1, 2, 3 days before
+        
+        // Takvim verilerini SharedPreferences'dan yükleyen fonksiyon
+        fun loadScheduleFromPreferences(context: Context): Map<LocalDate, ShiftType> {
+            val prefs: SharedPreferences = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val scheduleJson = prefs.getString("schedule_data", null) ?: return emptyMap()
+            
+            try {
+                val gson = Gson()
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
+                
+                return stringMap.mapKeys { (dateStr, _) ->
+                    LocalDate.parse(dateStr)
+                }.mapValues { (_, shiftTypeStr) ->
+                    ShiftType.valueOf(shiftTypeStr)
+                }
+            } catch (e: Exception) {
+                return emptyMap()
+            }
+        }
     }
     
     fun scheduleShiftReminder(
@@ -121,7 +144,7 @@ class NotificationScheduler(private val context: Context) {
         var successCount = 0
         val errors = mutableListOf<Exception>()
         
-        reminderDaysList.forEach { days ->
+        for (days in reminderDaysList) {
             try {
                 if (scheduleShiftReminder(date, shiftType, days)) {
                     successCount++
@@ -142,15 +165,37 @@ class NotificationScheduler(private val context: Context) {
     }
     
     fun cancelAllRemindersForShift(date: LocalDate, shiftType: ShiftType) {
-        DEFAULT_REMINDER_DAYS.forEach { days ->
+        for (days in DEFAULT_REMINDER_DAYS) {
             cancelShiftReminder(date, shiftType, days)
         }
     }
     
     fun rescheduleAllNotifications() {
-        // This would be called after boot completion
-        // For now, we'll leave it empty as it requires access to the schedule data
-        // In a real implementation, you would reload the schedule and reschedule active notifications
+        try {
+            // Load schedule data and reschedule all active notifications
+            val schedule = loadScheduleFromPreferences(context)
+            
+            // Cancel all existing notifications first
+            for ((date, type) in schedule) {
+                cancelAllRemindersForShift(date, type)
+            }
+            
+            // Reschedule notifications if enabled
+            if (areNotificationsEnabled()) {
+                for ((date, type) in schedule) {
+                    try {
+                        scheduleAllRemindersForShift(date, type)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to reschedule notification for $date ($type)", e)
+                    }
+                }
+                Log.d(TAG, "Rescheduled ${schedule.size} shift notifications after boot")
+            } else {
+                Log.d(TAG, "Notifications disabled, skipping rescheduling after boot")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reschedule notifications after boot", e)
+        }
     }
     
     private fun getShiftStartTime(date: LocalDate, shiftType: ShiftType): LocalDateTime {
@@ -162,9 +207,9 @@ class NotificationScheduler(private val context: Context) {
     }
     
     private fun generateNotificationId(date: LocalDate, shiftType: ShiftType, reminderDays: Int): Int {
-    // Daha güvenli ve çakışma olasılığı düşük ID generation
-    val baseId = (date.toEpochDay() + shiftType.ordinal * 100L + reminderDays * 10000L).toInt()
-    return (baseId and 0x7FFFFFFF) // Pozitif integer garantisi
+        // Daha güvenli ve çakışma olasılığı düşük ID generation
+        val baseId = (date.toEpochDay() + shiftType.ordinal * 100L + reminderDays * 10000L).toInt()
+        return (baseId and 0x7FFFFFFF) // Pozitif integer garantisi
     }
     
     private fun areNotificationsEnabled(): Boolean {
@@ -173,12 +218,17 @@ class NotificationScheduler(private val context: Context) {
     }
     
     private fun getReminderDaysList(): List<Int> {
-    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val reminderDays = prefs.getInt(KEY_REMINDER_DAYS, 1)
-    
-    // Kullanıcı ayarına göre filtrele
-    return DEFAULT_REMINDER_DAYS.filter { it <= reminderDays }
-        .ifEmpty { listOf(reminderDays) } // En az bir reminder garantisi
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val reminderDays = prefs.getInt(KEY_REMINDER_DAYS, 1)
+        
+        // Schedule reminders for all default days up to the user's setting
+        // Also include the user's specific setting to ensure at least one reminder
+        val defaultReminders = DEFAULT_REMINDER_DAYS.filter { it <= reminderDays }
+        return if (defaultReminders.isEmpty()) {
+            listOf(reminderDays)
+        } else {
+            defaultReminders
+        }
     }
     
     fun setNotificationsEnabled(enabled: Boolean) {

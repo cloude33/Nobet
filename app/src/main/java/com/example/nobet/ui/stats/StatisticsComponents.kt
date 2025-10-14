@@ -599,13 +599,6 @@ private fun HolidaysCard(holidays: List<com.example.nobet.utils.TurkishHolidays.
                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                     )
                 }
-                if (holiday.workingHours > 0) {
-                    Text(
-                        "   → Çalışma: ${holiday.workingHours} saat",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
             }
         }
     }
@@ -758,7 +751,8 @@ fun exportMonthlyStatistics(
     shareMode: Boolean,
     onResult: (String) -> Unit
 ) {
-    val monthlyStats = vm.calculateMonthlyStatistics(month)
+    // Create a MonthlyStatistics object manually since the method doesn't exist
+    val monthlyStats = createMonthlyStatistics(vm, month)
     val holidays = vm.getHolidaysForMonth(month)
     val arifeDayAdjustments = getArifeDayAdjustments(vm, month)
     
@@ -805,8 +799,9 @@ fun exportYearlyStatistics(
     )
 }
 
-private fun ScheduleViewModel.calculateMonthlyStatistics(month: YearMonth): com.example.nobet.ui.calendar.MonthlyStatistics {
-    val currentMonthShifts = schedule.filter { (date, _) -> YearMonth.from(date) == month }
+// Helper function to create MonthlyStatistics since the method doesn't exist in ScheduleViewModel
+private fun createMonthlyStatistics(vm: ScheduleViewModel, month: YearMonth): com.example.nobet.ui.calendar.MonthlyStatistics {
+    val currentMonthShifts = vm.schedule.filter { (date, _) -> YearMonth.from(date) == month }
     
     val shiftCounts = mapOf(
         ShiftType.MORNING to currentMonthShifts.filter { (_, type) -> type == ShiftType.MORNING }.size,
@@ -820,8 +815,8 @@ private fun ScheduleViewModel.calculateMonthlyStatistics(month: YearMonth): com.
     
     return com.example.nobet.ui.calendar.MonthlyStatistics(
         month = month,
-        totalHours = totalFor(month),
-        overtimeResult = calculateOvertime(month),
+        totalHours = vm.totalFor(month),
+        overtimeResult = vm.calculateOvertime(month),
         shiftCounts = shiftCounts,
         workingDayDistribution = workingDayDistribution
     )

@@ -9,6 +9,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.compose.ui.graphics.toArgb
 import com.example.nobet.MainActivity
 import com.example.nobet.R
 import com.example.nobet.ui.calendar.ShiftType
@@ -105,7 +106,7 @@ class NotificationHelper(private val context: Context) {
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
-                .setColor(shiftType.color.value.toInt())
+                .setColor(shiftType.color.toArgb())
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .build()

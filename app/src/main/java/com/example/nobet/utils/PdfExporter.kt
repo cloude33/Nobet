@@ -258,32 +258,47 @@ class PdfExporter(private val context: Context) {
         
         document.add(table)
     }
-    
+
+    // PdfExporter.kt dosyasındaki eski addHolidaysSection'ı bununla değiştirin.
+
     private fun addHolidaysSection(document: Document, holidays: List<TurkishHolidays.Holiday>) {
         document.add(
-            Paragraph("Bu Aydaki Tatiller")
-                .setFontSize(FONT_SIZE_HEADER)
+            Paragraph("Bu Aydaki Tatiller")            .setFontSize(FONT_SIZE_HEADER)
                 .setBold()
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
-        
+
         val table = Table(UnitValue.createPercentArray(floatArrayOf(70f, 30f)))
             .setWidth(UnitValue.createPercentValue(100f))
-        
+
         holidays.forEach { holiday ->
             table.addCell(createCell(holiday.name, false))
             table.addCell(createCell("${holiday.date.dayOfMonth}/${holiday.date.monthValue}", false))
-            
-            if (holiday.workingHours > 0) {
-                table.addCell(createCell("→ Çalışma: ${holiday.workingHours} saat", false))
-                table.addCell(createCell("", false))
+
+            // --- DEĞİŞİKLİK BURADA ---
+            // Artık holiday.workingHours yerine, o günün zorunlu mesaisini
+            // WorkHourCalculator'dan alıyoruz.
+            val expectedWork = WorkHourCalculator.getExpectedWorkHours(holiday.date)
+
+            // Sadece zorunlu mesaisi olan kısmi tatiller (28 Ekim, Arifeler) için bu detayı PDF'e ekle.
+            if (expectedWork > 0) {
+                // İki hücreli bir tabloya tek sütun eklemek düzeni bozacağı için,
+                // bunu ayrı bir paragraf olarak eklemek daha güvenlidir.
+                val detailParagraph = Paragraph("   → Zorunlu Mesai: ${expectedWork} saat")
+                    .setFontSize(FONT_SIZE_SMALL)
+                    .setFontColor(DeviceRgb(100, 100, 100))
+
+                val detailCell = Cell(1, 2).add(detailParagraph) // İki sütunu kaplayan tek bir hücre
+                detailCell.setBorder(null) // Hücre kenarlıklarını kaldır
+                table.addCell(detailCell)
             }
         }
-        
+
         document.add(table)
     }
-    
+
+
     private fun addArifeDayAdjustmentsSection(document: Document, adjustments: List<Pair<java.time.LocalDate, Int>>) {
         document.add(
             Paragraph("Arife Günü Saat Ayarları")

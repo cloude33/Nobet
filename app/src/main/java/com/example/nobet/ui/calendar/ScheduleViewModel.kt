@@ -11,6 +11,7 @@ import com.google.gson.reflect.TypeToken
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import com.example.nobet.ui.calendar.CustomShiftType
 
 // Data sınıfları...
 data class OvertimeResult(
@@ -52,6 +53,26 @@ class ScheduleViewModel : ViewModel() {
     companion object {
         private const val PREFS_NAME = "nobet_schedule_prefs"
         private const val SCHEDULE_KEY = "schedule_data"
+        
+        // Takvim verilerini SharedPreferences'dan yükleyen fonksiyon
+        fun loadScheduleFromPreferences(context: Context): Map<LocalDate, ShiftType> {
+            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val scheduleJson = prefs.getString("schedule_data", null) ?: return emptyMap()
+            
+            try {
+                val gson = Gson()
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
+                
+                return stringMap.mapKeys { (dateStr, _) ->
+                    LocalDate.parse(dateStr)
+                }.mapValues { (_, shiftTypeStr) ->
+                    ShiftType.valueOf(shiftTypeStr)
+                }
+            } catch (e: Exception) {
+                return emptyMap()
+            }
+        }
     }
 
     fun initializeWithContext(context: Context) {
@@ -135,7 +156,20 @@ class ScheduleViewModel : ViewModel() {
         val end = month.atEndOfMonth()
         return generateSequence(start) { it.plusDays(1) }
             .takeWhile { !it.isAfter(end) }
-            .sumOf { date -> schedule[date]?.let { getHoursForShiftType(it) } ?: 0 }
+            .sumOf { date -> schedule[date]?.let { getHoursForShiftType(it, date) } ?: 0 }
+    }
+    
+    // Özel nöbet türü oluşturma ve kaydetme
+    fun setCustomShift(date: LocalDate, id: String, label: String, hours: Int, color: androidx.compose.ui.graphics.Color) {
+        val customShift = CustomShiftType(id, label, hours, color)
+        schedule[date] = ShiftType.MORNING // Özel nöbetleri MORNING olarak kaydediyoruz
+        
+        // SharedPreferences'e özel nöbet bilgilerini kaydet
+        val customShiftsKey = "custom_shift_$date"
+        val customShiftJson = gson.toJson(customShift)
+        sharedPreferences?.edit()?.putString(customShiftsKey, customShiftJson)?.apply()
+        
+        saveScheduleToPrefs()
     }
 
     // Fazla mesaiyi "aylık kota" mantığına göre hesaplayan son ve doğru fonksiyon
@@ -148,20 +182,57 @@ class ScheduleViewModel : ViewModel() {
             val end = month.atEndOfMonth()
             generateSequence(start) { it.plusDays(1) }
                 .takeWhile { !it.isAfter(end) }
-                .sumOf { TurkishHolidays.getWorkingHoursForDate(it) }
+                .sumOf { date -> 
+                    // Hafta sonu kontrolü
+                    if (date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY) {
+                        0
+                    } else {
+                        8 // Normal çalışma günü
+                    }.toInt()
+                }
         }
 
         // 3. Fazla mesaiyi hesapla: Toplam çalışılan saat, zorunlu saati aşıyorsa aradaki farktır.
         val overtimeHours = (workedHours - totalExpectedHours).coerceAtLeast(0)
 
+        // Tatil günlerini hesapla
+        val holidayHours = 0 // Basitleştirilmiş hesaplama
+
         // Sonuçları doğru şekilde döndür.
         return OvertimeResult(
             workedHours = workedHours,
             overtimeHours = overtimeHours,
-            workingDays = 0, // Bu alanlar artık kullanılmıyor, 0 kalabilir.
-            expectedHours = 0,
-            holidayHours = 0,
+            workingDays = month.lengthOfMonth() - (month.atDay(1).let { start ->
+                val end = month.atEndOfMonth()
+                generateSequence(start) { it.plusDays(1) }
+                    .takeWhile { !it.isAfter(end) }
+                    .count { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+            }),
+            expectedHours = totalExpectedHours,
+            holidayHours = holidayHours,
             totalExpectedHours = totalExpectedHours
+        )
+    }
+    
+    fun getMonthlyStatistics(month: YearMonth): MonthlyStatistics {
+        val days = month.lengthOfMonth()
+        val workingDays = days - month.atDay(1).let { start ->
+            val end = month.atEndOfMonth()
+            generateSequence(start) { it.plusDays(1) }
+                .takeWhile { !it.isAfter(end) }
+                .count { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+        }
+        
+        val expectedHours = workingDays * 8 // 8 saat normal çalışma günü
+        val workedHours = totalFor(month)
+        val overtime = calculateOvertime(month)
+        
+        return MonthlyStatistics(
+            month = month,
+            totalHours = workedHours,
+            overtimeResult = overtime,
+            shiftCounts = getShiftCountsForMonth(month),
+            workingDayDistribution = getWorkingDayDistributionForMonth(month)
         )
     }
 
@@ -218,9 +289,34 @@ class ScheduleViewModel : ViewModel() {
     fun isHoliday(date: LocalDate): Boolean = TurkishHolidays.isHoliday(date)
     fun getHolidayInfo(date: LocalDate): TurkishHolidays.Holiday? = TurkishHolidays.getHoliday(date)
     fun getShiftTypeConfig(): ShiftTypeConfig? = shiftTypeConfig
-    fun getCurrentShiftTypes(): List<DynamicShiftType> = shiftTypeConfig?.getCurrentShiftTypes() ?: emptyList()
-
-    fun getHoursForShiftType(shiftType: ShiftType): Int {
+    fun getCurrentShiftTypes(): List<DynamicShiftType> = shiftTypeConfig?.getAllShiftTypes() ?: emptyList()
+    
+    // Custom shift type management methods
+    fun addCustomShiftType(label: String, hours: Int, color: androidx.compose.ui.graphics.Color) {
+        val id = java.util.UUID.randomUUID().toString()
+        val customShift = CustomShiftType(id, label, hours, color)
+        shiftTypeConfig?.addCustomShiftType(customShift)
+    }
+    
+    fun removeCustomShiftType(id: String) {
+        shiftTypeConfig?.removeCustomShiftType(id)
+    }
+    
+    fun getHoursForShiftType(shiftType: ShiftType, date: LocalDate = LocalDate.now()): Int {
+        // Özel nöbet türü kontrolü
+        if (shiftType == ShiftType.MORNING) {
+            val customShiftsKey = "custom_shift_$date"
+            val customShiftJson = sharedPreferences?.getString(customShiftsKey, null)
+            if (customShiftJson != null) {
+                try {
+                    val customShift: CustomShiftType = gson.fromJson(customShiftJson, CustomShiftType::class.java)
+                    return customShift.hours
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        
         return when (shiftType) {
             ShiftType.MORNING -> shiftTypeConfig?.getMorningHours() ?: ShiftTypeConfig.DEFAULT_MORNING_HOURS
             ShiftType.NIGHT -> shiftTypeConfig?.getNightHours() ?: ShiftTypeConfig.DEFAULT_NIGHT_HOURS
@@ -256,43 +352,53 @@ class ScheduleViewModel : ViewModel() {
     }
 
     fun calculateYearlyStatistics(year: Int): YearlyStatistics {
-        val yearMonths = (1..12).map { YearMonth.of(year, it) }
-        val monthlyData = yearMonths.map { month ->
-            MonthlyStatistics(
-                month = month,
-                totalHours = totalFor(month),
-                overtimeResult = calculateOvertime(month),
-                shiftCounts = getShiftCountsForMonth(month),
-                workingDayDistribution = getWorkingDayDistributionForMonth(month)
-            )
+        val yearStart = YearMonth.of(year, 1)
+        val yearEnd = YearMonth.of(year, 12)
+        
+        val monthlyStats = (1..12).map { month ->
+            getMonthlyStatistics(YearMonth.of(year, month))
         }
-
-        val totalWorkedHours = monthlyData.sumOf { it.totalHours }
-        val totalOvertimeHours = monthlyData.sumOf { it.overtimeResult.overtimeHours }
-        val totalExpectedHours = monthlyData.sumOf { it.overtimeResult.totalExpectedHours }
-
-        val yearlyShiftCounts = ShiftType.entries.associateWith { shiftType ->
-            monthlyData.sumOf { it.shiftCounts[shiftType] ?: 0 }
+        
+        val totalWorkedHours = monthlyStats.sumOf { it.totalHours }
+        val totalOvertimeHours = monthlyStats.sumOf { it.overtimeResult.overtimeHours }
+        val totalExpectedHours = monthlyStats.sumOf { it.overtimeResult.expectedHours }
+        
+        // Yıllık vardiya dağılımı
+        val yearlyShiftCounts = ShiftType.values().associateWith { shiftType ->
+            monthlyStats.sumOf { it.shiftCounts[shiftType] ?: 0 }
         }
-
-        val yearlyWorkingDayDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
-            monthlyData.sumOf { it.workingDayDistribution[dayOfWeek] ?: 0 }
+        
+        // Yıllık çalışma günü dağılımı
+        val yearlyWorkingDayDistribution = DayOfWeek.values().associateWith { dayOfWeek ->
+            monthlyStats.sumOf { it.workingDayDistribution[dayOfWeek] ?: 0 }
         }
-
-        val yearShifts = schedule.filter { (date, _) -> date.year == year }
-        val yearlyDayShiftDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
-            yearShifts.count { (date, type) -> date.dayOfWeek == dayOfWeek && type == ShiftType.MORNING }
+        
+        // Gündüz vardiyalarının günlere göre dağılımı
+        val yearlyDayShiftDistribution = DayOfWeek.values().associateWith { dayOfWeek ->
+            yearStart.atDay(1).let { start ->
+                val end = yearEnd.atEndOfMonth()
+                generateSequence(start) { it.plusDays(1) }
+                    .takeWhile { !it.isAfter(end) }
+                    .count { date -> date.dayOfWeek == dayOfWeek && schedule[date] == ShiftType.MORNING }
+            }
         }
-        val yearlyNightShiftDistribution = DayOfWeek.entries.associateWith { dayOfWeek ->
-            yearShifts.count { (date, type) -> date.dayOfWeek == dayOfWeek && (type == ShiftType.NIGHT || type == ShiftType.FULL) }
+        
+        // Gece vardiyalarının günlere göre dağılımı
+        val yearlyNightShiftDistribution = DayOfWeek.values().associateWith { dayOfWeek ->
+            yearStart.atDay(1).let { start ->
+                val end = yearEnd.atEndOfMonth()
+                generateSequence(start) { it.plusDays(1) }
+                    .takeWhile { !it.isAfter(end) }
+                    .count { date -> date.dayOfWeek == dayOfWeek && (schedule[date] == ShiftType.NIGHT || schedule[date] == ShiftType.FULL) }
+            }
         }
-
+        
         return YearlyStatistics(
             year = year,
             totalWorkedHours = totalWorkedHours,
             totalOvertimeHours = totalOvertimeHours,
             totalExpectedHours = totalExpectedHours,
-            monthlyData = monthlyData,
+            monthlyData = monthlyStats,
             yearlyShiftCounts = yearlyShiftCounts,
             yearlyWorkingDayDistribution = yearlyWorkingDayDistribution,
             yearlyDayShiftDistribution = yearlyDayShiftDistribution,

@@ -46,7 +46,13 @@ fun BulkOperationsTab(
         vm.getCurrentShiftTypes().forEach { dynamicShift ->
             Button(
                 onClick = {
-                    showConfirmDialog = "add_${dynamicShift.type.name}"
+                    val actionName = if (dynamicShift.type != null) {
+                        "add_${dynamicShift.type.name}"
+                    } else {
+                        // For custom shifts, use a different identifier
+                        "add_custom_${dynamicShift.id ?: "unknown"}"
+                    }
+                    showConfirmDialog = actionName
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
@@ -109,14 +115,20 @@ fun BulkOperationsTab(
                     onClick = {
                         when {
                             action.startsWith("add_") -> {
-                                val shiftTypeName = action.removePrefix("add_")
-                                val shiftType = when (shiftTypeName) {
-                                    "MORNING" -> ShiftType.MORNING
-                                    "NIGHT" -> ShiftType.NIGHT
-                                    "FULL" -> ShiftType.FULL
-                                    else -> ShiftType.MORNING
+                                if (action.startsWith("add_custom_")) {
+                                    // For custom shifts, we'll use the MORNING shift type as a placeholder
+                                    // A full implementation would require modifying how shifts are stored
+                                    vm.addWorkingDaysToMonth(currentMonth, ShiftType.MORNING)
+                                } else {
+                                    val shiftTypeName = action.removePrefix("add_")
+                                    val shiftType = when (shiftTypeName) {
+                                        "MORNING" -> ShiftType.MORNING
+                                        "NIGHT" -> ShiftType.NIGHT
+                                        "FULL" -> ShiftType.FULL
+                                        else -> ShiftType.MORNING
+                                    }
+                                    vm.addWorkingDaysToMonth(currentMonth, shiftType)
                                 }
-                                vm.addWorkingDaysToMonth(currentMonth, shiftType)
                             }
                             action == "clear_all" -> {
                                 vm.clearAllShiftsInMonth(currentMonth)

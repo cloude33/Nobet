@@ -1,5 +1,6 @@
 package com.example.nobet.ui.calendar
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.nobet.utils.TurkishHolidays
+import com.google.gson.Gson
 import io.github.boguszpawlowski.composecalendar.SelectableCalendar
 import io.github.boguszpawlowski.composecalendar.rememberSelectableCalendarState
 import java.time.DayOfWeek
@@ -279,10 +281,10 @@ fun CalendarScreen(
     
     // Settings Dialog
     if (showSettingsDialog) {
-        SettingsDialog(
-            onDismiss = { showSettingsDialog = false },
+        com.example.nobet.ui.calendar.SettingsDialog(
             vm = vm,
-            currentMonth = currentMonth
+            currentMonth = currentMonth,
+            onDismiss = { showSettingsDialog = false }
         )
     }
 }
@@ -301,8 +303,29 @@ private fun DayCell(
     val isToday = date == LocalDate.now()
     val isHoliday = holidayInfo != null
 
+    // Özel nöbet rengi kontrolü
     val bgColor: Color = when {
-        shift != null -> shift.color
+        shift != null -> {
+            if (shift == ShiftType.MORNING) {
+                // Özel nöbet türü kontrolü
+                val customShiftsKey = "custom_shift_$date"
+                val sharedPreferences = LocalContext.current.getSharedPreferences("nobet_schedule_prefs", Context.MODE_PRIVATE)
+                val customShiftJson = sharedPreferences.getString(customShiftsKey, null)
+                if (customShiftJson != null) {
+                    try {
+                        val gson = Gson()
+                        val customShift: CustomShiftType = gson.fromJson(customShiftJson, CustomShiftType::class.java)
+                        customShift.color
+                    } catch (e: Exception) {
+                        shift.color
+                    }
+                } else {
+                    shift.color
+                }
+            } else {
+                shift.color
+            }
+        }
         isSelected && selectedShiftColor != null -> selectedShiftColor.copy(alpha = 0.7f)
         isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
         isHoliday -> when (holidayInfo?.type) {
@@ -441,14 +464,33 @@ private fun ShiftDialog(
         title = { Text("Nöbet Seçiniz") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // SADECE 3 TİP
-                listOf(ShiftType.MORNING, ShiftType.NIGHT, ShiftType.FULL).forEach { type ->
+                // Get all shift types including custom ones
+                val allShiftTypes = vm.getCurrentShiftTypes()
+                
+                // Display all shift types
+                allShiftTypes.forEach { dynamicShift ->
                     Button(
-                        onClick = { onSelect(type) },
+                        onClick = { 
+                            // For predefined shifts
+                            if (dynamicShift.type != null) {
+                                // Standart nöbet türleri için
+                                onSelect(dynamicShift.type)
+                            } else if (dynamicShift.id != null) {
+                                // Özel nöbet türleri için
+                                // Özel nöbet türünü ShiftType'a dönüştürüp kaydediyoruz
+                                // Burada önemli olan, özel nöbet türünün saatini doğru şekilde kaydetmek
+                                selectedDate?.let { date ->
+                                    // Özel nöbet türünü kaydet
+                                    vm.setCustomShift(date, dynamicShift.id, dynamicShift.label, dynamicShift.hours, dynamicShift.color)
+                                    // Diyaloğu kapat
+                                    onDismiss()
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = type.color, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = dynamicShift.color, contentColor = Color.White)
                     ) {
-                        Text("${type.label} (${type.hours} Saat)")
+                        Text("${dynamicShift.label} (${dynamicShift.hours} Saat)")
                     }
                 }
                 
@@ -492,113 +534,3 @@ private fun ShiftDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SettingsDialog(
-    onDismiss: () -> Unit,
-    vm: ScheduleViewModel,
-    currentMonth: YearMonth
-) {
-    var selectedTab by remember { mutableStateOf(0) }
-    
-    // Safely get shift types with error handling
-    val shiftTypes = remember { 
-        try {
-            vm.getCurrentShiftTypes()
-        } catch (e: Exception) {
-            emptyList<DynamicShiftType>()
-        }
-    }
-    
-    AlertDialog(
-        onDismissRequest = {
-            try {
-                onDismiss()
-            } catch (e: Exception) {
-                // Handle dismiss error gracefully
-            }
-        },
-        modifier = Modifier.fillMaxSize(),
-        title = {
-            Text(
-                "⚙️ Ayarlar",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Tab Row with error handling
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { 
-                            try {
-                                selectedTab = 0 
-                            } catch (e: Exception) {
-                                // Handle tab selection error
-                            }
-                        },
-                        text = { Text("Toplu İşlemler", fontSize = 12.sp) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { 
-                            try {
-                                selectedTab = 1 
-                            } catch (e: Exception) {
-                                // Handle tab selection error
-                            }
-                        },
-                        text = { Text("Nöbet Saatleri", fontSize = 12.sp) }
-                    )
-                }
-                
-                // Content without nested scrolling
-                when (selectedTab) {
-                    0 -> {
-                        BulkOperationsTab(
-                            vm = vm,
-                            currentMonth = currentMonth,
-                            onDismiss = onDismiss
-                        )
-                    }
-                    1 -> {
-                        ShiftHoursTab(
-                            vm = vm,
-                            shiftTypes = shiftTypes
-                        )
-                    }
-                    else -> {
-                        // Fallback content
-                        Text(
-                            "Seçenek bulunamadı",
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { 
-                    try {
-                        onDismiss()
-                    } catch (e: Exception) {
-                        // Handle button click error
-                    }
-                }
-            ) {
-                Text("Kapat")
-            }
-        }
-    )
-}
