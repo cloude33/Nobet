@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import com.example.nobet.notification.NotificationScheduler
 import com.example.nobet.utils.TurkishHolidays
+import com.example.nobet.utils.WorkHourCalculator
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.time.DayOfWeek
@@ -183,12 +184,7 @@ class ScheduleViewModel : ViewModel() {
             generateSequence(start) { it.plusDays(1) }
                 .takeWhile { !it.isAfter(end) }
                 .sumOf { date -> 
-                    // Hafta sonu kontrolü
-                    if (date.dayOfWeek == DayOfWeek.SATURDAY || date.dayOfWeek == DayOfWeek.SUNDAY) {
-                        0
-                    } else {
-                        8 // Normal çalışma günü
-                    }.toInt()
+                    WorkHourCalculator.getExpectedWorkHours(date)
                 }
         }
 
@@ -215,15 +211,6 @@ class ScheduleViewModel : ViewModel() {
     }
     
     fun getMonthlyStatistics(month: YearMonth): MonthlyStatistics {
-        val days = month.lengthOfMonth()
-        val workingDays = days - month.atDay(1).let { start ->
-            val end = month.atEndOfMonth()
-            generateSequence(start) { it.plusDays(1) }
-                .takeWhile { !it.isAfter(end) }
-                .count { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
-        }
-        
-        val expectedHours = workingDays * 8 // 8 saat normal çalışma günü
         val workedHours = totalFor(month)
         val overtime = calculateOvertime(month)
         
@@ -242,7 +229,7 @@ class ScheduleViewModel : ViewModel() {
      */
     fun isSpecialHolidayRule(date: LocalDate): Boolean {
         if (!schedule.containsKey(date)) return false
-        val expectedWork = TurkishHolidays.getWorkingHoursForDate(date)
+        val expectedWork = WorkHourCalculator.getExpectedWorkHours(date)
         // Eğer o gün zorunlu mesai varsa (0 < saat < 8) ve nöbet tutulmuşsa, bu özel bir kuraldır.
         return expectedWork > 0 && expectedWork < 8
     }
@@ -256,7 +243,7 @@ class ScheduleViewModel : ViewModel() {
         if (!schedule.containsKey(date)) return 0
         val shift = schedule[date] ?: return 0
         val shiftHours = getHoursForShiftType(shift)
-        val expectedWork = TurkishHolidays.getWorkingHoursForDate(date)
+        val expectedWork = WorkHourCalculator.getExpectedWorkHours(date)
         // Fazla mesai = Çalışılan Saat - O Gün Beklenen Saat
         return (shiftHours - expectedWork).coerceAtLeast(0)
     }
@@ -338,7 +325,7 @@ class ScheduleViewModel : ViewModel() {
         generateSequence(start) { it.plusDays(1) }
             .takeWhile { !it.isAfter(end) }
             .filter { date ->
-                val workingHours = TurkishHolidays.getWorkingHoursForDate(date)
+                val workingHours = WorkHourCalculator.getExpectedWorkHours(date)
                 workingHours == 8 && !schedule.containsKey(date)
             }
             .forEach { date -> set(date, shiftType) }
