@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +39,8 @@ fun CalendarScreen(
     padding: PaddingValues, 
     vm: ScheduleViewModel = viewModel(),
     currentMonth: YearMonth = YearMonth.now(),
-    onMonthChanged: (YearMonth) -> Unit = {}
+    onMonthChanged: (YearMonth) -> Unit = {},
+    showSettingsOnLaunch: Boolean = false
 ) {
     val context = LocalContext.current
     
@@ -52,7 +54,7 @@ fun CalendarScreen(
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var dialogFor by remember { mutableStateOf<LocalDate?>(null) }
     var selectedShiftColor by remember { mutableStateOf<Color?>(null) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(showSettingsOnLaunch) }
 
     val locale = java.util.Locale.forLanguageTag("tr-TR")
     val overtimeResult = vm.calculateOvertime(currentMonth)
@@ -62,70 +64,89 @@ fun CalendarScreen(
         modifier = Modifier
             .padding(padding)
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        // Başlık
-        Row(
-            modifier = Modifier.fillMaxWidth(), 
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // Modern Başlık Kartı
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Spacer(Modifier.width(48.dp)) // Balance the settings icon
-            
-            Row {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     "Nöbet",
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold)
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     "Takvimim",
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 6.dp)
-                )
-            }
-            
-            IconButton(onClick = { showSettingsDialog = true }) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "Ayarlar",
-                    tint = MaterialTheme.colorScheme.primary
+                    modifier = Modifier.padding(start = 8.dp)
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
+        
+        Spacer(Modifier.height(16.dp))
 
-        // Ay navigasyonu
-        Row(
+        // Modern Ay Navigasyonu
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
-            IconButton(onClick = { 
-                val newMonth = currentMonth.minusMonths(1)
-                onMonthChanged(newMonth)
-            }) {
-                Icon(Icons.Filled.ChevronLeft, contentDescription = "Önceki ay")
-            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { 
+                    val newMonth = currentMonth.minusMonths(1)
+                    onMonthChanged(newMonth)
+                }) {
+                    Icon(
+                        Icons.Filled.ChevronLeft, 
+                        contentDescription = "Önceki ay",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
 
-            val monthText = currentMonth.month.getDisplayName(TextStyle.FULL, locale)
-            Text(
-                "${monthText.replaceFirstChar { it.titlecase(locale) }} ${currentMonth.year}",
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f)
-            )
+                val monthText = currentMonth.month.getDisplayName(TextStyle.FULL, locale)
+                Text(
+                    "${monthText.replaceFirstChar { it.titlecase(locale) }} ${currentMonth.year}",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
 
-            IconButton(onClick = { 
-                val newMonth = currentMonth.plusMonths(1)
-                onMonthChanged(newMonth)
-            }) {
-                Icon(Icons.Filled.ChevronRight, contentDescription = "Sonraki ay")
+                IconButton(onClick = { 
+                    val newMonth = currentMonth.plusMonths(1)
+                    onMonthChanged(newMonth)
+                }) {
+                    Icon(
+                        Icons.Filled.ChevronRight, 
+                        contentDescription = "Sonraki ay",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
 
         // Takvim
         key(currentMonth) {
@@ -156,108 +177,88 @@ fun CalendarScreen(
         }
 
         Spacer(Modifier.height(16.dp))
-        HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f), thickness = 1.dp)
-        Spacer(Modifier.height(16.dp))
 
-        // Legend — SADECE 3 TİP
-        Legend()
+        // Modern Legend Kartı
+        /*
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    "Nöbet Türleri",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Legend()
+            }
+        }
+        */
         
         Spacer(Modifier.height(16.dp))
         
-        // Ana Ekran İstatistikleri
+        // Modern İstatistik Kartları
         val monthText = currentMonth.month.getDisplayName(TextStyle.FULL, locale)
         val missingHours = max(0, overtimeResult.totalExpectedHours - overtimeResult.workedHours)
         
-        Column(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Text(
-                text = "${monthText.replaceFirstChar { it.titlecase(locale) }} ${currentMonth.year}",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            
-            // Toplam Çalışma Saati
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Toplam Çalışma Saatin:",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        "${overtimeResult.workedHours} Saat",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            
-            // Fazla Çalışma Saati (Kırmızı renkte)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Red.copy(alpha = 0.2f)
+                Text(
+                    text = "${monthText.replaceFirstChar { it.titlecase(locale) }} ${currentMonth.year} Özeti",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Fazla Çalışma Saatin:",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Red
-                    )
-                    Text(
-                        "${overtimeResult.overtimeHours} Saat",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.Red
-                    )
-                }
-            }
-            
-            // Eksik Mesai
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (missingHours > 0) 
-                        Color(0xFFFFA500).copy(alpha = 0.1f) 
-                    else 
-                        Color.Gray.copy(alpha = 0.05f)
+                
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    thickness = 1.dp
                 )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Eksik Mesai:",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = if (missingHours > 0) Color.Red else Color.Black
-                    )
-                    Text(
-                        "$missingHours Saat",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = if (missingHours > 0) Color.Red else Color.Black
-                    )
-                }
+                
+                // Toplam Çalışma Saati
+                StatisticRow(
+                    icon = "⏰",
+                    label = "Toplam Çalışma",
+                    value = "${overtimeResult.workedHours} Saat",
+                    valueColor = MaterialTheme.colorScheme.primary,
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer
+                )
+                
+                // Fazla Çalışma Saati
+                StatisticRow(
+                    icon = "📈",
+                    label = "Fazla Çalışma",
+                    value = "${overtimeResult.overtimeHours} Saat",
+                    valueColor = Color(0xFFD32F2F),
+                    backgroundColor = Color(0xFFFFEBEE)
+                )
+                
+                // Eksik Mesai
+                StatisticRow(
+                    icon = "⚠️",
+                    label = "Eksik Mesai",
+                    value = "$missingHours Saat",
+                    valueColor = if (missingHours > 0) Color(0xFFFF6F00) else MaterialTheme.colorScheme.onSurface,
+                    backgroundColor = if (missingHours > 0) Color(0xFFFFF3E0) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                )
             }
         }
     }
@@ -281,12 +282,24 @@ fun CalendarScreen(
     
     // Settings Dialog
     if (showSettingsDialog) {
-        com.example.nobet.ui.calendar.SettingsDialog(
-            vm = vm,
-            currentMonth = currentMonth,
-            onDismiss = { showSettingsDialog = false }
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("Ayarlar") },
+            text = {
+                SettingsDialogContent(
+                    vm = vm,
+                    currentMonth = currentMonth,
+                    onDismiss = { showSettingsDialog = false }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("Kapat")
+                }
+            }
         )
     }
+
 }
 
 @Composable
@@ -368,12 +381,52 @@ private fun DayCell(
 }
 
 @Composable
+private fun StatisticRow(
+    icon: String,
+    label: String,
+    value: String,
+    valueColor: Color,
+    backgroundColor: Color
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = icon,
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
+                )
+            }
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = valueColor
+            )
+        }
+    }
+}
+
+@Composable
 private fun Legend() {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // First row with MORNING and NIGHT
         Row(
@@ -385,15 +438,15 @@ private fun Legend() {
             ShiftType.NIGHT.LegendBoxCompact()
         }
         
-        Spacer(Modifier.height(8.dp))
-        
-        // Second row with FULL
+        // Second row with FULL, ANNUAL_LEAVE, and REPORT
         Row(
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
             ShiftType.FULL.LegendBoxCompact()
+            ShiftType.ANNUAL_LEAVE.LegendBoxCompact()
+            ShiftType.REPORT.LegendBoxCompact()
         }
     }
 }
@@ -494,6 +547,23 @@ private fun ShiftDialog(
                     }
                 }
                 
+                // Add Annual Leave and Report options
+                Button(
+                    onClick = { onSelect(ShiftType.ANNUAL_LEAVE) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ShiftType.ANNUAL_LEAVE.color, contentColor = Color.White)
+                ) {
+                    Text("${ShiftType.ANNUAL_LEAVE.label} (${ShiftType.ANNUAL_LEAVE.hours} Saat) - Yıllık İzin")
+                }
+                
+                Button(
+                    onClick = { onSelect(ShiftType.REPORT) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ShiftType.REPORT.color, contentColor = Color.White)
+                ) {
+                    Text("${ShiftType.REPORT.label} (${ShiftType.REPORT.hours} Saat) - Rapor")
+                }
+                
                 // Show arife day warning if applicable
                 selectedDate?.let { date ->
                     val holidayInfo = vm.getHolidayInfo(date)
@@ -534,3 +604,105 @@ private fun ShiftDialog(
     )
 }
 
+// Add a new composable to show the settings dialog
+@Composable
+fun SettingsScreen(padding: PaddingValues, vm: ScheduleViewModel) {
+    val context = LocalContext.current
+    var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    
+    // Initialize ViewModel with context for data persistence
+    LaunchedEffect(Unit) {
+        vm.initializeWithContext(context)
+    }
+    
+    Column(
+        modifier = Modifier
+            .padding(padding)
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Modern Başlık Kartı
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "⚙️ ",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                Text(
+                    "Ayarlar",
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        
+        Spacer(Modifier.height(16.dp))
+        
+        // Show the settings dialog content directly in the screen
+        com.example.nobet.ui.calendar.SettingsDialogContent(
+            vm = vm,
+            currentMonth = currentMonth,
+            onDismiss = {}
+        )
+    }
+}
+
+// Create a separate composable for the settings dialog content so we can reuse it
+@Composable
+fun SettingsDialogContent(
+    vm: ScheduleViewModel,
+    currentMonth: YearMonth,
+    onDismiss: () -> Unit
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val shiftTypes = vm.getCurrentShiftTypes()
+    
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Scrollable Tab Row
+        ScrollableTabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.surface,
+            edgePadding = 0.dp
+        ) {
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { Text("Nöbet Saatleri") }
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = { Text("Bildirim") }
+            )
+            Tab(
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 },
+                text = { Text("Hakkında") }
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        
+        // Tab Content
+        when (selectedTab) {
+            0 -> ShiftHoursTab(vm = vm, shiftTypes = shiftTypes)
+            1 -> NotificationSettingsTab(vm = vm)
+            2 -> AboutSection()
+        }
+
+    }
+}

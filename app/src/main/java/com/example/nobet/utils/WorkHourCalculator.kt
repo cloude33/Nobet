@@ -3,6 +3,7 @@ package com.example.nobet.utils
 import java.time.DayOfWeek
 import java.time.LocalDate
 import com.example.nobet.utils.TurkishHolidays
+import com.example.nobet.ui.calendar.ShiftType
 
 /**
  * Bir tarihin zorunlu çalışma saatini hesaplayan yardımcı nesne.
@@ -30,6 +31,30 @@ object WorkHourCalculator {
 
             // Diğer tüm hafta içi günler
             else -> FULL_DAY_HOURS
+        }
+    }
+    
+    /**
+     * Calculates the expected work hours considering shift types
+     * For annual leave and report days on working days, deducts from expected hours
+     */
+    fun getExpectedWorkHoursWithShift(date: LocalDate, shiftType: ShiftType?): Int {
+        // If no shift is assigned, use the default calculation
+        if (shiftType == null) {
+            return getExpectedWorkHours(date)
+        }
+        
+        // For annual leave and report days on working days, return 0 expected hours
+        return when (shiftType) {
+            ShiftType.ANNUAL_LEAVE, ShiftType.REPORT -> {
+                // Only deduct if it's a working day
+                if (getExpectedWorkHours(date) > 0) {
+                    NO_WORK_HOURS
+                } else {
+                    getExpectedWorkHours(date)
+                }
+            }
+            else -> getExpectedWorkHours(date)
         }
     }
 }

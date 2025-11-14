@@ -1,71 +1,94 @@
-# Notification and Working Hours Fixes
+# Bug Fix: Annual Leave Settings Not Restored from Backup
 
-## Issues Fixed
+## Problem
+When restoring data from a backup (either local JSON or Google Drive), the annual leave settings were not being restored. This meant that previously entered permissions (annual leave days) were not being deducted from the total permission days, causing incorrect calculations.
 
-### 1. Working Hours Calculation Issue (October 28th)
-**Problem**: All shifts on October 28th were being calculated incorrectly. The day should be treated as a partial holiday where only 5 hours count toward required working hours.
+## Root Cause
+The backup/restore functionality was only saving and restoring the schedule data, but not the annual leave settings. When data was restored, the app would start with default annual leave settings (30 total days, 0 used), regardless of what had been previously used.
 
-**Root Cause**: 
-- October 28th needed to be treated as a special partial holiday day where work hours are reduced from 8 to 5
-- The application wasn't correctly handling this special case
+## Solution
+Modified the data serialization/deserialization to include annual leave settings along with schedule data:
 
-**Fixes Applied**:
-1. Modified [TurkishHolidays.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt) to add a new PARTIAL_DAY holiday type for October 28th
-2. Updated [ScheduleViewModel.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt) to properly calculate effective hours for partial holidays:
-   - For a regular 8-hour shift on October 28th: 5 hours count toward required hours
-   - For a 24-hour shift on October 28th: 5 hours count toward required hours, 19 hours count as overtime
-3. Updated statistics display to show both arife days and partial holidays with the same 5-hour rule
+### 1. Created ScheduleData class
+Added a new data class to encapsulate both schedule and annual leave settings:
+```kotlin
+data class ScheduleData(
+    val schedule: Map<String, String>,
+    val annualLeaveSettings: AnnualLeaveSettings
+)
+```
 
-### 2. Notification System Issues
-**Problem**: Notifications were not being delivered reliably, even when the test notification worked.
+### 2. Updated toJson() method
+Modified the [toJson](file:///C:/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt#L222-L229) method in ScheduleViewModel to serialize both schedule and annual leave settings:
+```kotlin
+fun toJson(): String {
+    val stringMap = schedule.mapKeys { it.key.toString() }.mapValues { it.value.name }
+    val scheduleData = ScheduleData(
+        schedule = stringMap,
+        annualLeaveSettings = annualLeaveSettings
+    )
+    return gson.toJson(scheduleData)
+}
+```
 
-**Root Cause**:
-1. The notification scheduler was only scheduling one reminder instead of the full set (1, 2, and 3 days before)
-2. Limited error handling and logging made it difficult to diagnose issues
-3. Missing permission checks for critical Android 12+ features
+### 3. Updated fromJson() method
+Modified the [fromJson](file:///C:/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt#L231-L270) method to deserialize both schedule and annual leave settings:
+```kotlin
+fun fromJson(json: String) {
+    try {
+        val scheduleData: ScheduleData = gson.fromJson(json, ScheduleData::class.java)
+        
+        // Restore schedule
+        val mapped = mutableMapOf<LocalDate, ShiftType>()
+        scheduleData.schedule.forEach { (key, value) ->
+            try {
+                val date = LocalDate.parse(key)
+                val shiftType = ShiftType.valueOf(value)
+                mapped[date] = shiftType
+            } catch (e: Exception) {}
+        }
+        schedule.clear()
+        schedule.putAll(mapped)
+        
+        // Restore annual leave settings
+        annualLeaveSettings = scheduleData.annualLeaveSettings
+        
+        saveScheduleToPrefs()
+        saveAnnualLeaveSettings()
+    } catch (e: Exception) {
+        // Fallback to old format for backward compatibility
+        // ... existing code for old format
+    }
+}
+```
 
-**Fixes Applied**:
-1. Modified [NotificationScheduler.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt) to properly return the full list of reminder days
-2. Enhanced error handling and logging in the notification scheduling process
-3. Added better permission checking for exact alarms (required for Android 12+)
-4. Improved the reliability of notification scheduling with better error reporting
+### 4. Updated saveScheduleToPrefs() method
+Modified the [saveScheduleToPrefs](file:///C:/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt#L180-L191) method to save both schedule and annual leave settings:
+```kotlin
+private fun saveScheduleToPrefs() {
+    try {
+        val stringMap = schedule.mapKeys { it.key.toString() }.mapValues { it.value.name }
+        val scheduleData = ScheduleData(
+            schedule = stringMap,
+            annualLeaveSettings = annualLeaveSettings
+        )
+        sharedPreferences?.edit()?.putString(SCHEDULE_KEY, gson.toJson(scheduleData))?.apply()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+```
 
-## Files Modified
+### 5. Added backward compatibility
+The updated [fromJson](file:///C:/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt#L231-L270) method includes a fallback to handle old backup files that don't include annual leave settings.
 
-1. [app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/utils/TurkishHolidays.kt)
-   - Added PARTIAL_DAY holiday type for October 28th
-   - Updated holiday type handling logic
+### 6. Updated NotificationScheduler
+Updated the [loadScheduleFromPreferences](file:///C:/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt#L32-L49) method in NotificationScheduler to handle the new data structure while maintaining backward compatibility.
 
-2. [app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/calendar/ScheduleViewModel.kt)
-   - Updated working hours calculation to handle partial holidays correctly
-   - Ensured consistency in total hours calculation
-   - Updated special holiday rule checking
+## Testing
+Added unit tests to verify:
+1. Serialization and deserialization of both schedule and annual leave settings
+2. Backward compatibility with old backup formats
 
-3. [app/src/main/java/com/example/nobet/ui/stats/StatisticsComponents.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/ui/stats/StatisticsComponents.kt)
-   - Updated UI to show both arife days and partial holidays
-   - Made text more general to cover both cases
-
-4. [app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationScheduler.kt)
-   - Fixed reminder days list to include all default reminders (1, 2, 3 days)
-   - Enhanced error handling and logging
-   - Improved permission checking
-
-5. [app/src/main/java/com/example/nobet/notification/NotificationHelper.kt](file:///c%3A/Users/BULUT/Desktop/Nobet_Listem/app/src/main/java/com/example/nobet/notification/NotificationHelper.kt)
-   - Added permission status checking method
-
-## Testing Recommendations
-
-1. Verify that October 28th now correctly calculates hours:
-   - MORNING (08-16) shifts should count as 5 hours on October 28th
-   - NIGHT (16-08) and FULL (08-08) shifts should count as 5 hours on October 28th
-   - For 24-hour shifts on October 28th, 19 hours should be counted as overtime
-
-2. Test notification system:
-   - Ensure notifications are scheduled for 1, 2, and 3 days before shifts
-   - Check that notifications are delivered on Android 12+ devices
-   - Verify permission status reporting works correctly
-
-3. Check edge cases:
-   - Verify behavior on actual arife days (e.g., religious holiday eves)
-   - Test notification behavior when app is restarted
-   - Confirm proper cancellation of notifications when shifts are removed
+## Impact
+This fix ensures that when a backup is restored, both the schedule data and the annual leave settings are properly restored, which means that previously entered permissions will be correctly deducted from the total permission days.

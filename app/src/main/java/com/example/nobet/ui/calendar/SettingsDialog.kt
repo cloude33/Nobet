@@ -61,36 +61,12 @@ fun SettingsDialog(
                 
                 Spacer(Modifier.height(16.dp))
                 
-                // Tab Row
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Nöbet Saatleri") }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Toplu İşlemler") }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("Özel Nöbetler") }
-                    )
-                }
-                
-                Spacer(Modifier.height(16.dp))
-                
-                // Tab Content
-                when (selectedTab) {
-                    0 -> ShiftHoursTab(vm = vm, shiftTypes = shiftTypes)
-                    1 -> BulkOperationsTab(vm = vm, currentMonth = currentMonth, onDismiss = onDismiss)
-                    2 -> CustomShiftsTab(vm = vm, onDismiss = onDismiss)
-                }
+                // Use the shared content component
+                SettingsDialogContent(
+                    vm = vm,
+                    currentMonth = currentMonth,
+                    onDismiss = onDismiss
+                )
             }
         }
     }
@@ -157,7 +133,7 @@ fun CustomShiftsTab(
     
     // Add Custom Shift Dialog
     if (showAddDialog) {
-        AddCustomShiftDialog(
+        AddCustomShiftDialogV2(
             vm = vm,
             onDismiss = { showAddDialog = false }
         )
@@ -191,157 +167,5 @@ fun CustomShiftsTab(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AddCustomShiftDialog(
-    vm: ScheduleViewModel,
-    onDismiss: () -> Unit
-) {
-    var label by remember { mutableStateOf("") }
-    var hours by remember { mutableIntStateOf(8) }
-    var selectedColorIndex by remember { mutableIntStateOf(0) }
-    val colors = ShiftTypeConfig.PREDEFINED_COLORS
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Yeni Nöbet Türü Ekle") },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Label input
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it },
-                    label = { Text("Etiket (ör: 08-13)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                // Hours selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Saat:", style = MaterialTheme.typography.bodyLarge)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = { if (hours > 1) hours-- }
-                        ) {
-                            Icon(Icons.Default.Remove, contentDescription = "Azalt")
-                        }
-                        Text("$hours", style = MaterialTheme.typography.headlineSmall)
-                        IconButton(
-                            onClick = { if (hours < 24) hours++ }
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Artır")
-                        }
-                    }
-                }
-                
-                // Color selector
-                Text("Renk:", style = MaterialTheme.typography.bodyLarge)
-                LazyColumn(
-                    modifier = Modifier.height(120.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(colors.chunked(6)) { colorRow ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            colorRow.forEachIndexed { index, color ->
-                                val globalIndex = selectedColorIndex / 6 * 6 + index
-                                Card(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .padding(2.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = color
-                                    ),
-                                    onClick = { selectedColorIndex = globalIndex }
-                                ) {
-                                    if (globalIndex == selectedColorIndex) {
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = "Seçildi",
-                                                tint = Color.White
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (label.isNotBlank()) {
-                        vm.addCustomShiftType(label, hours, colors[selectedColorIndex])
-                        onDismiss()
-                    }
-                },
-                enabled = label.isNotBlank()
-            ) {
-                Text("Ekle")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("İptal")
-            }
-        }
-    )
-}
+// Removed duplicate AddCustomShiftDialog; unified to AddCustomShiftDialogV2 in SettingsComponents.kt
 
-@Composable
-fun CustomShiftItem(
-    shift: CustomShiftType,
-    onDelete: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = shift.color.copy(alpha = 0.1f)
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    shift.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = shift.color
-                )
-                Text(
-                    "${shift.hours} saat",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = shift.color.copy(alpha = 0.7f)
-                )
-            }
-            IconButton(
-                onClick = onDelete,
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = Color.Red
-                )
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Sil")
-            }
-        }
-    }
-}

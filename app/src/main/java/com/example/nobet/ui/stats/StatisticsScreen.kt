@@ -53,12 +53,12 @@ fun StatisticsScreen(
     Column(
         modifier = Modifier
             .padding(padding)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Current period header (always show current statistics title)
+        // Modern Başlık Kartı
         val currentPeriodText = when (selectedMode) {
             StatisticsMode.MONTHLY -> {
                 val monthName = selectedMonth.month.getDisplayName(TextStyle.FULL, locale)
@@ -69,12 +69,51 @@ fun StatisticsScreen(
             }
         }
         
-        Text(
-            currentPeriodText,
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
-        )
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "📊 ",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                Text(
+                    currentPeriodText,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        
+        // Mode Selection at the top
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                onClick = { selectedMode = StatisticsMode.MONTHLY },
+                label = { Text("Aylık") },
+                selected = selectedMode == StatisticsMode.MONTHLY,
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                onClick = { selectedMode = StatisticsMode.YEARLY },
+                label = { Text("Yıllık") },
+                selected = selectedMode == StatisticsMode.YEARLY,
+                modifier = Modifier.weight(1f)
+            )
+        }
         
         // Period Selection (without export buttons)
         PeriodSelectionCard(
@@ -103,25 +142,6 @@ fun StatisticsScreen(
                     locale = locale
                 )
             }
-        }
-        
-        // Mode Selection at the bottom
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                onClick = { selectedMode = StatisticsMode.MONTHLY },
-                label = { Text("Aylık") },
-                selected = selectedMode == StatisticsMode.MONTHLY,
-                modifier = Modifier.weight(1f)
-            )
-            FilterChip(
-                onClick = { selectedMode = StatisticsMode.YEARLY },
-                label = { Text("Yıllık") },
-                selected = selectedMode == StatisticsMode.YEARLY,
-                modifier = Modifier.weight(1f)
-            )
         }
         
         // Export buttons at the bottom

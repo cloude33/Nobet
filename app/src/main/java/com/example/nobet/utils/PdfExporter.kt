@@ -4,10 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.example.nobet.ui.calendar.AnnualLeaveSettings
 import com.example.nobet.ui.calendar.MonthlyStatistics
 import com.example.nobet.ui.calendar.ShiftType
 import com.example.nobet.ui.calendar.YearlyStatistics
 import com.itextpdf.kernel.colors.DeviceRgb
+import com.itextpdf.kernel.font.PdfFontFactory
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfWriter
 import com.itextpdf.layout.Document
@@ -34,10 +36,25 @@ class PdfExporter(private val context: Context) {
     
     private val locale = Locale.forLanguageTag("tr-TR")
     
+    private fun createBoldParagraph(text: String): Paragraph {
+        return Paragraph(text)
+            .setFontSize(FONT_SIZE_HEADER)
+            .setFont(PdfFontFactory.createFont("Helvetica-Bold", "Cp1254"))
+    }
+    
+    private fun createTitleParagraph(text: String): Paragraph {
+        return Paragraph(text)
+            .setFontSize(FONT_SIZE_TITLE)
+            .setFont(PdfFontFactory.createFont("Helvetica-Bold", "Cp1254"))
+            .setTextAlignment(TextAlignment.CENTER)
+    }
+    
     fun exportMonthlyStatistics(
         monthlyStats: MonthlyStatistics,
         holidays: List<TurkishHolidays.Holiday>,
         arifeDayAdjustments: List<Pair<java.time.LocalDate, Int>>,
+        annualLeaveCount: Int,
+        reportCount: Int,
         onSuccess: (Uri) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -53,10 +70,7 @@ class PdfExporter(private val context: Context) {
             val monthName = monthlyStats.month.month.getDisplayName(TextStyle.FULL, locale)
             val title = "${monthName.replaceFirstChar { it.titlecase(locale) }} ${monthlyStats.month.year} Nöbet İstatistikleri"
             document.add(
-                Paragraph(title)
-                    .setFontSize(FONT_SIZE_TITLE)
-                    .setBold()
-                    .setTextAlignment(TextAlignment.CENTER)
+                createTitleParagraph(title)
                     .setMarginBottom(20f)
             )
             
@@ -65,6 +79,15 @@ class PdfExporter(private val context: Context) {
             
             // Shift Types and Counts
             addShiftTypesSection(document, monthlyStats.shiftCounts)
+            
+            // Annual Leave and Report Sections
+            if (annualLeaveCount > 0) {
+                addAnnualLeaveSection(document, annualLeaveCount)
+            }
+            
+            if (reportCount > 0) {
+                addReportSection(document, reportCount)
+            }
             
             // Working Day Distribution
             addWorkingDayDistributionSection(document, monthlyStats.workingDayDistribution)
@@ -96,6 +119,9 @@ class PdfExporter(private val context: Context) {
     
     fun exportYearlyStatistics(
         yearlyStats: YearlyStatistics,
+        annualLeaveSettings: com.example.nobet.ui.calendar.AnnualLeaveSettings,
+        annualLeaveCount: Int,
+        reportCount: Int,
         onSuccess: (Uri) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -110,18 +136,27 @@ class PdfExporter(private val context: Context) {
             // Title
             val title = "${yearlyStats.year} Yılı Nöbet İstatistikleri"
             document.add(
-                Paragraph(title)
-                    .setFontSize(FONT_SIZE_TITLE)
-                    .setBold()
-                    .setTextAlignment(TextAlignment.CENTER)
+                createTitleParagraph(title)
                     .setMarginBottom(20f)
             )
             
             // Yearly Summary
             addYearlySummarySection(document, yearlyStats)
             
+            // Annual Leave Summary
+            addAnnualLeaveSummarySection(document, annualLeaveSettings)
+            
             // Yearly Shift Types
             addShiftTypesSection(document, yearlyStats.yearlyShiftCounts)
+            
+            // Annual Leave and Report Sections
+            if (annualLeaveCount > 0) {
+                addAnnualLeaveSection(document, annualLeaveCount)
+            }
+            
+            if (reportCount > 0) {
+                addReportSection(document, reportCount)
+            }
             
             // Yearly Working Day Distribution
             addWorkingDayDistributionSection(document, yearlyStats.yearlyWorkingDayDistribution)
@@ -146,9 +181,7 @@ class PdfExporter(private val context: Context) {
     
     private fun addSummarySection(document: Document, monthlyStats: MonthlyStatistics) {
         document.add(
-            Paragraph("Özet")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Özet")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -179,9 +212,7 @@ class PdfExporter(private val context: Context) {
     
     private fun addYearlySummarySection(document: Document, yearlyStats: YearlyStatistics) {
         document.add(
-            Paragraph("Yıllık Özet")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Yıllık Özet")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -209,11 +240,32 @@ class PdfExporter(private val context: Context) {
         document.add(table)
     }
     
+    // Updated function to add annual leave summary to PDF
+    private fun addAnnualLeaveSummarySection(document: Document, annualLeaveSettings: com.example.nobet.ui.calendar.AnnualLeaveSettings) {
+        document.add(
+            createBoldParagraph("Yıllık İzin Özeti")
+                .setMarginTop(15f)
+                .setMarginBottom(10f)
+        )
+        
+        val table = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+            .setWidth(UnitValue.createPercentValue(100f))
+        
+        table.addCell(createCell("Toplam İzin Hakkı:", false))
+        table.addCell(createCell("${annualLeaveSettings.totalAnnualLeaveDays} gün", false))
+        
+        table.addCell(createCell("Kullanılan İzin:", false))
+        table.addCell(createCell("${annualLeaveSettings.usedAnnualLeaveDays} gün", false))
+        
+        table.addCell(createCell("Kalan İzin:", false))
+        table.addCell(createCell("${annualLeaveSettings.remainingAnnualLeaveDays} gün", false))
+        
+        document.add(table)
+    }
+    
     private fun addShiftTypesSection(document: Document, shiftCounts: Map<ShiftType, Int>) {
         document.add(
-            Paragraph("Nöbet Tipleri ve Sayıları")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Nöbet Tipleri ve Sayıları")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -222,18 +274,63 @@ class PdfExporter(private val context: Context) {
             .setWidth(UnitValue.createPercentValue(100f))
         
         shiftCounts.forEach { (type, count) ->
-            table.addCell(createCell(type.label, false))
-            table.addCell(createCell("$count adet", false))
+            // Skip annual leave and report in this section, they will have their own sections
+            if (type != ShiftType.ANNUAL_LEAVE && type != ShiftType.REPORT) {
+                table.addCell(createCell(type.label, false))
+                table.addCell(createCell("$count adet", false))
+            }
         }
         
         document.add(table)
     }
+
+    private fun addAnnualLeaveSection(document: Document, count: Int) {
+        document.add(
+            createBoldParagraph("Yıllık İzin (Yİ)")
+                .setMarginTop(15f)
+                .setMarginBottom(10f)
+        )
+        
+        val table = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+            .setWidth(UnitValue.createPercentValue(100f))
+        
+        table.addCell(createCell(ShiftType.ANNUAL_LEAVE.label, false))
+        table.addCell(createCell("$count adet", false))
+        
+        document.add(table)
+        
+        document.add(
+            Paragraph("Not: Yıllık izin günleri çalışılan günlerden düşülür.")
+                .setFontSize(FONT_SIZE_SMALL)
+                .setMarginTop(5f)
+        )
+    }
+
+    private fun addReportSection(document: Document, count: Int) {
+        document.add(
+            createBoldParagraph("Rapor (RP)")
+                .setMarginTop(15f)
+                .setMarginBottom(10f)
+        )
+        
+        val table = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+            .setWidth(UnitValue.createPercentValue(100f))
+        
+        table.addCell(createCell(ShiftType.REPORT.label, false))
+        table.addCell(createCell("$count adet", false))
+        
+        document.add(table)
+        
+        document.add(
+            Paragraph("Not: Rapor günleri çalışılan günlerden düşülür.")
+                .setFontSize(FONT_SIZE_SMALL)
+                .setMarginTop(5f)
+        )
+    }
     
     private fun addWorkingDayDistributionSection(document: Document, distribution: Map<DayOfWeek, Int>) {
         document.add(
-            Paragraph("Günlere Göre Dağılım")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Günlere Göre Dağılım")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -263,8 +360,7 @@ class PdfExporter(private val context: Context) {
 
     private fun addHolidaysSection(document: Document, holidays: List<TurkishHolidays.Holiday>) {
         document.add(
-            Paragraph("Bu Aydaki Tatiller")            .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Bu Aydaki Tatiller")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -301,9 +397,7 @@ class PdfExporter(private val context: Context) {
 
     private fun addArifeDayAdjustmentsSection(document: Document, adjustments: List<Pair<java.time.LocalDate, Int>>) {
         document.add(
-            Paragraph("Arife Günü Saat Ayarları")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Arife Günü Düzenlemeleri")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -327,9 +421,7 @@ class PdfExporter(private val context: Context) {
     
     private fun addMonthlyBreakdownSection(document: Document, monthlyData: List<MonthlyStatistics>) {
         document.add(
-            Paragraph("Aylık Detay")
-                .setFontSize(FONT_SIZE_HEADER)
-                .setBold()
+            createBoldParagraph("Aylık Detay")
                 .setMarginTop(15f)
                 .setMarginBottom(10f)
         )
@@ -369,10 +461,15 @@ class PdfExporter(private val context: Context) {
     }
     
     private fun createCell(text: String, isHeader: Boolean, color: DeviceRgb? = null): Cell {
-        val cell = Cell().add(Paragraph(text).setFontSize(if (isHeader) FONT_SIZE_HEADER else FONT_SIZE_NORMAL))
+        val font = if (isHeader) {
+            PdfFontFactory.createFont("Helvetica-Bold", "Cp1254")
+        } else {
+            PdfFontFactory.createFont("Helvetica", "Cp1254")
+        }
+        
+        val cell = Cell().add(Paragraph(text).setFont(font).setFontSize(if (isHeader) FONT_SIZE_HEADER else FONT_SIZE_NORMAL))
         
         if (isHeader) {
-            cell.setBold()
             cell.setBackgroundColor(DeviceRgb(230, 230, 230))
         }
         

@@ -3,6 +3,9 @@ package com.example.nobet.ui.calendar
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.example.nobet.notification.NotificationScheduler
 import com.example.nobet.utils.TurkishHolidays
@@ -44,16 +47,32 @@ data class YearlyStatistics(
     val yearlyNightShiftDistribution: Map<DayOfWeek, Int>
 )
 
+// New data class for annual leave tracking
+data class AnnualLeaveSettings(
+    val totalAnnualLeaveDays: Int = 30,
+    val usedAnnualLeaveDays: Int = 0
+) {
+    val remainingAnnualLeaveDays: Int
+        get() = totalAnnualLeaveDays - usedAnnualLeaveDays
+}
+
+data class ScheduleData(
+    val schedule: Map<String, String>,
+    val annualLeaveSettings: AnnualLeaveSettings
+)
+
 class ScheduleViewModel : ViewModel() {
     private val gson = Gson()
     val schedule = mutableStateMapOf<LocalDate, ShiftType>()
     private var sharedPreferences: SharedPreferences? = null
     private var notificationScheduler: NotificationScheduler? = null
     private var shiftTypeConfig: ShiftTypeConfig? = null
-
+    
     companion object {
         private const val PREFS_NAME = "nobet_schedule_prefs"
         private const val SCHEDULE_KEY = "schedule_data"
+        private const val ANNUAL_LEAVE_TOTAL_KEY = "annual_leave_total"
+        private const val ANNUAL_LEAVE_USED_KEY = "annual_leave_used"
         
         // Takvim verilerini SharedPreferences'dan yükleyen fonksiyon
         fun loadScheduleFromPreferences(context: Context): Map<LocalDate, ShiftType> {
@@ -62,20 +81,37 @@ class ScheduleViewModel : ViewModel() {
             
             try {
                 val gson = Gson()
-                val type = object : TypeToken<Map<String, String>>() {}.type
-                val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
                 
-                return stringMap.mapKeys { (dateStr, _) ->
-                    LocalDate.parse(dateStr)
-                }.mapValues { (_, shiftTypeStr) ->
-                    ShiftType.valueOf(shiftTypeStr)
+                // Try to parse as new ScheduleData format first
+                try {
+                    val scheduleData: ScheduleData = gson.fromJson(scheduleJson, ScheduleData::class.java)
+                    val stringMap: Map<String, String> = scheduleData.schedule
+                    
+                    return stringMap.mapKeys { (dateStr, _) ->
+                        LocalDate.parse(dateStr)
+                    }.mapValues { (_, shiftTypeStr) ->
+                        ShiftType.valueOf(shiftTypeStr)
+                    }
+                } catch (e: Exception) {
+                    // Fallback to old format for backward compatibility
+                    val type = object : TypeToken<Map<String, String>>() {}.type
+                    val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
+                    
+                    return stringMap.mapKeys { (dateStr, _) ->
+                        LocalDate.parse(dateStr)
+                    }.mapValues { (_, shiftTypeStr) ->
+                        ShiftType.valueOf(shiftTypeStr)
+                    }
                 }
             } catch (e: Exception) {
                 return emptyMap()
             }
         }
     }
-
+    
+    // Annual leave settings
+    var annualLeaveSettings by mutableStateOf(AnnualLeaveSettings())
+    
     fun initializeWithContext(context: Context) {
         try {
             if (sharedPreferences == null) {
@@ -88,11 +124,68 @@ class ScheduleViewModel : ViewModel() {
                 shiftTypeConfig = ShiftTypeConfig(context)
             }
             loadScheduleFromPrefs()
+            loadAnnualLeaveSettings()
+            // Automatically update used annual leave days based on schedule
+            updateUsedAnnualLeaveFromSchedule()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+    
+    // New function to calculate used annual leave days from schedule
+    private fun updateUsedAnnualLeaveFromSchedule() {
+        try {
+            val annualLeaveCount = schedule.values.count { it == ShiftType.ANNUAL_LEAVE }
+            // Only update if the count is different from current used days
+            if (annualLeaveCount != annualLeaveSettings.usedAnnualLeaveDays) {
+                annualLeaveSettings = annualLeaveSettings.copy(usedAnnualLeaveDays = annualLeaveCount)
+                saveAnnualLeaveSettings()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    private fun loadAnnualLeaveSettings() {
+        try {
+            sharedPreferences?.let { prefs ->
+                val totalAnnualLeave = prefs.getInt(ANNUAL_LEAVE_TOTAL_KEY, 30)
+                val usedAnnualLeave = prefs.getInt(ANNUAL_LEAVE_USED_KEY, 0)
+                annualLeaveSettings = AnnualLeaveSettings(totalAnnualLeave, usedAnnualLeave)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    private fun saveAnnualLeaveSettings() {
+        try {
+            sharedPreferences?.edit()
+                ?.putInt(ANNUAL_LEAVE_TOTAL_KEY, annualLeaveSettings.totalAnnualLeaveDays)
+                ?.putInt(ANNUAL_LEAVE_USED_KEY, annualLeaveSettings.usedAnnualLeaveDays)
+                ?.apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
 
+    
+    fun setTotalAnnualLeaveDays(days: Int) {
+        annualLeaveSettings = annualLeaveSettings.copy(totalAnnualLeaveDays = days)
+        saveAnnualLeaveSettings()
+    }
+    
+    fun addUsedAnnualLeaveDays(days: Int) {
+        annualLeaveSettings = annualLeaveSettings.copy(usedAnnualLeaveDays = annualLeaveSettings.usedAnnualLeaveDays + days)
+        saveAnnualLeaveSettings()
+    }
+    
+    fun resetUsedAnnualLeaveDays() {
+        annualLeaveSettings = annualLeaveSettings.copy(usedAnnualLeaveDays = 0)
+        saveAnnualLeaveSettings()
+    }
+    
     private fun loadScheduleFromPrefs() {
         try {
             sharedPreferences?.getString(SCHEDULE_KEY, null)?.let { json ->
@@ -105,7 +198,12 @@ class ScheduleViewModel : ViewModel() {
 
     private fun saveScheduleToPrefs() {
         try {
-            sharedPreferences?.edit()?.putString(SCHEDULE_KEY, toJson())?.apply()
+            val stringMap = schedule.mapKeys { it.key.toString() }.mapValues { it.value.name }
+            val scheduleData = ScheduleData(
+                schedule = stringMap,
+                annualLeaveSettings = annualLeaveSettings
+            )
+            sharedPreferences?.edit()?.putString(SCHEDULE_KEY, gson.toJson(scheduleData))?.apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -116,9 +214,21 @@ class ScheduleViewModel : ViewModel() {
             val oldType = schedule[date]
             if (type == null) {
                 schedule.remove(date)
+                // If we're removing an annual leave day, decrease the count
+                if (oldType == ShiftType.ANNUAL_LEAVE) {
+                    addUsedAnnualLeaveDays(-1)
+                }
                 oldType?.let { try { notificationScheduler?.cancelAllRemindersForShift(date, it) } catch (e: Exception) {} }
             } else {
                 schedule[date] = type
+                // If we're adding an annual leave day, increase the count
+                if (type == ShiftType.ANNUAL_LEAVE && oldType != ShiftType.ANNUAL_LEAVE) {
+                    addUsedAnnualLeaveDays(1)
+                }
+                // If we're changing from annual leave to something else, decrease the count
+                if (oldType == ShiftType.ANNUAL_LEAVE && type != ShiftType.ANNUAL_LEAVE) {
+                    addUsedAnnualLeaveDays(-1)
+                }
                 oldType?.let { try { notificationScheduler?.cancelAllRemindersForShift(date, it) } catch (e: Exception) {} }
                 try { notificationScheduler?.scheduleAllRemindersForShift(date, type) } catch (e: Exception) {}
             }
@@ -129,16 +239,21 @@ class ScheduleViewModel : ViewModel() {
     }
 
     fun toJson(): String {
-        val map = schedule.mapKeys { it.key.toString() }
-        return gson.toJson(map)
+        val stringMap = schedule.mapKeys { it.key.toString() }.mapValues { it.value.name }
+        val scheduleData = ScheduleData(
+            schedule = stringMap,
+            annualLeaveSettings = annualLeaveSettings
+        )
+        return gson.toJson(scheduleData)
     }
 
     fun fromJson(json: String) {
         try {
-            val type = object : TypeToken<Map<String, String>>() {}.type
-            val parsed: Map<String, String> = gson.fromJson(json, type)
+            val scheduleData: ScheduleData = gson.fromJson(json, ScheduleData::class.java)
+            
+            // Restore schedule
             val mapped = mutableMapOf<LocalDate, ShiftType>()
-            parsed.forEach { (key, value) ->
+            scheduleData.schedule.forEach { (key, value) ->
                 try {
                     val date = LocalDate.parse(key)
                     val shiftType = ShiftType.valueOf(value)
@@ -147,8 +262,34 @@ class ScheduleViewModel : ViewModel() {
             }
             schedule.clear()
             schedule.putAll(mapped)
+            
+            // Restore annual leave settings
+            annualLeaveSettings = scheduleData.annualLeaveSettings
+            
             saveScheduleToPrefs()
-        } catch (e: Exception) {}
+            saveAnnualLeaveSettings()
+            // Update used annual leave days based on restored schedule
+            updateUsedAnnualLeaveFromSchedule()
+        } catch (e: Exception) {
+            // Fallback to old format for backward compatibility
+            try {
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                val parsed: Map<String, String> = gson.fromJson(json, type)
+                val mapped = mutableMapOf<LocalDate, ShiftType>()
+                parsed.forEach { (key, value) ->
+                    try {
+                        val date = LocalDate.parse(key)
+                        val shiftType = ShiftType.valueOf(value)
+                        mapped[date] = shiftType
+                    } catch (e: Exception) {}
+                }
+                schedule.clear()
+                schedule.putAll(mapped)
+                saveScheduleToPrefs()
+                // Update used annual leave days based on restored schedule
+                updateUsedAnnualLeaveFromSchedule()
+            } catch (e2: Exception) {}
+        }
     }
 
     // Sadece girilen nöbetlerin ham saat toplamını döndürür.
@@ -157,7 +298,16 @@ class ScheduleViewModel : ViewModel() {
         val end = month.atEndOfMonth()
         return generateSequence(start) { it.plusDays(1) }
             .takeWhile { !it.isAfter(end) }
-            .sumOf { date -> schedule[date]?.let { getHoursForShiftType(it, date) } ?: 0 }
+            .sumOf { date -> 
+                schedule[date]?.let { shiftType ->
+                    // For annual leave and report days, return 0 hours worked
+                    if (shiftType == ShiftType.ANNUAL_LEAVE || shiftType == ShiftType.REPORT) {
+                        0
+                    } else {
+                        getHoursForShiftType(shiftType, date)
+                    }
+                } ?: 0
+            }
     }
     
     // Özel nöbet türü oluşturma ve kaydetme
@@ -184,7 +334,10 @@ class ScheduleViewModel : ViewModel() {
             generateSequence(start) { it.plusDays(1) }
                 .takeWhile { !it.isAfter(end) }
                 .sumOf { date -> 
-                    WorkHourCalculator.getExpectedWorkHours(date)
+                    // Use the new method that considers shift types
+                    schedule[date]?.let { shiftType ->
+                        WorkHourCalculator.getExpectedWorkHoursWithShift(date, shiftType)
+                    } ?: WorkHourCalculator.getExpectedWorkHours(date)
                 }
         }
 
@@ -202,7 +355,14 @@ class ScheduleViewModel : ViewModel() {
                 val end = month.atEndOfMonth()
                 generateSequence(start) { it.plusDays(1) }
                     .takeWhile { !it.isAfter(end) }
-                    .count { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+                    .count { 
+                        // Also consider annual leave and report days as non-working days
+                        it.dayOfWeek == DayOfWeek.SATURDAY || 
+                        it.dayOfWeek == DayOfWeek.SUNDAY ||
+                        schedule[it] == ShiftType.ANNUAL_LEAVE ||
+                        schedule[it] == ShiftType.REPORT ||
+                        WorkHourCalculator.getExpectedWorkHours(it) == 0
+                    }
             }),
             expectedHours = totalExpectedHours,
             holidayHours = holidayHours,
@@ -242,6 +402,12 @@ class ScheduleViewModel : ViewModel() {
     fun getEffectiveHoursForDate(date: LocalDate): Int {
         if (!schedule.containsKey(date)) return 0
         val shift = schedule[date] ?: return 0
+        
+        // For annual leave and report days, return 0 effective hours
+        if (shift == ShiftType.ANNUAL_LEAVE || shift == ShiftType.REPORT) {
+            return 0
+        }
+        
         val shiftHours = getHoursForShiftType(shift)
         val expectedWork = WorkHourCalculator.getExpectedWorkHours(date)
         // Fazla mesai = Çalışılan Saat - O Gün Beklenen Saat
@@ -290,6 +456,11 @@ class ScheduleViewModel : ViewModel() {
     }
     
     fun getHoursForShiftType(shiftType: ShiftType, date: LocalDate = LocalDate.now()): Int {
+        // For annual leave and report days, return 0 hours
+        if (shiftType == ShiftType.ANNUAL_LEAVE || shiftType == ShiftType.REPORT) {
+            return 0
+        }
+        
         // Özel nöbet türü kontrolü
         if (shiftType == ShiftType.MORNING) {
             val customShiftsKey = "custom_shift_$date"
@@ -308,6 +479,8 @@ class ScheduleViewModel : ViewModel() {
             ShiftType.MORNING -> shiftTypeConfig?.getMorningHours() ?: ShiftTypeConfig.DEFAULT_MORNING_HOURS
             ShiftType.NIGHT -> shiftTypeConfig?.getNightHours() ?: ShiftTypeConfig.DEFAULT_NIGHT_HOURS
             ShiftType.FULL -> shiftTypeConfig?.getFullHours() ?: ShiftTypeConfig.DEFAULT_FULL_HOURS
+            // These should never be reached due to the early return above, but added for completeness
+            ShiftType.ANNUAL_LEAVE, ShiftType.REPORT -> 0
         }
     }
 
@@ -316,6 +489,8 @@ class ScheduleViewModel : ViewModel() {
             ShiftType.MORNING -> shiftTypeConfig?.getMorningLabel() ?: ShiftTypeConfig.DEFAULT_MORNING_LABEL
             ShiftType.NIGHT -> shiftTypeConfig?.getNightLabel() ?: ShiftTypeConfig.DEFAULT_NIGHT_LABEL
             ShiftType.FULL -> shiftTypeConfig?.getFullLabel() ?: ShiftTypeConfig.DEFAULT_FULL_LABEL
+            ShiftType.ANNUAL_LEAVE -> "Yıllık İzin"
+            ShiftType.REPORT -> "Rapor"
         }
     }
 

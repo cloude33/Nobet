@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.example.nobet.ui.calendar.AnnualLeaveSettings
 import com.example.nobet.ui.calendar.ScheduleViewModel
 import com.example.nobet.ui.calendar.ShiftType
 import com.example.nobet.utils.PdfExporter
@@ -165,6 +166,10 @@ fun MonthlyStatisticsContent(
         ShiftType.FULL to currentMonthShifts.filter { (_, type) -> type == ShiftType.FULL }.size
     )
     
+    // Count annual leave and report days
+    val annualLeaveCount = currentMonthShifts.filter { (_, type) -> type == ShiftType.ANNUAL_LEAVE }.size
+    val reportCount = currentMonthShifts.filter { (_, type) -> type == ShiftType.REPORT }.size
+    
     val workingDayDistribution = DayOfWeek.values().associateWith { dayOfWeek ->
         currentMonthShifts.filter { (date, _) -> date.dayOfWeek == dayOfWeek }.size
     }
@@ -181,6 +186,15 @@ fun MonthlyStatisticsContent(
         
         // Shift Types
         ShiftTypesCard(counts = counts)
+        
+        // Annual Leave and Report Cards
+        if (annualLeaveCount > 0) {
+            AnnualLeaveCard(count = annualLeaveCount, annualLeaveSettings = vm.annualLeaveSettings)
+        }
+        
+        if (reportCount > 0) {
+            ReportCard(count = reportCount)
+        }
         
         // Day Shift Distribution (08-16)
         val dayShiftDistribution = DayOfWeek.values().associateWith { dayOfWeek ->
@@ -218,6 +232,24 @@ fun YearlyStatisticsContent(
     locale: Locale
 ) {
     val yearlyStats = remember(year) { vm.calculateYearlyStatistics(year) }
+    val annualLeaveSettings = vm.annualLeaveSettings
+    
+    // Count annual leave and report days for the year
+    val yearStart = YearMonth.of(year, 1)
+    val yearEnd = YearMonth.of(year, 12)
+    val annualLeaveCount = yearStart.atDay(1).let { start ->
+        val end = yearEnd.atEndOfMonth()
+        generateSequence(start) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(end) }
+            .count { date -> vm.schedule[date] == ShiftType.ANNUAL_LEAVE }
+    }
+    
+    val reportCount = yearStart.atDay(1).let { start ->
+        val end = yearEnd.atEndOfMonth()
+        generateSequence(start) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(end) }
+            .count { date -> vm.schedule[date] == ShiftType.REPORT }
+    }
     
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -225,8 +257,20 @@ fun YearlyStatisticsContent(
         // Yearly Summary
         YearlySummaryCard(yearlyStats = yearlyStats)
         
+        // Annual Leave Summary Card
+        AnnualLeaveSummaryCard(annualLeaveSettings = annualLeaveSettings)
+        
         // Yearly Shift Types
         ShiftTypesCard(counts = yearlyStats.yearlyShiftCounts)
+        
+        // Annual Leave and Report Cards
+        if (annualLeaveCount > 0) {
+            AnnualLeaveCard(count = annualLeaveCount, annualLeaveSettings = annualLeaveSettings)
+        }
+        
+        if (reportCount > 0) {
+            ReportCard(count = reportCount)
+        }
         
         // Day Shift Distribution (08-16)
         DayShiftDistributionCard(distribution = yearlyStats.yearlyDayShiftDistribution)
@@ -381,15 +425,29 @@ private fun ShiftTypesCard(counts: Map<ShiftType, Int>) {
             )
             
             counts.forEach { (type, count) ->
+                // Skip annual leave and report in this card, they will have their own cards
+                if (type != ShiftType.ANNUAL_LEAVE && type != ShiftType.REPORT) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(type.color, RoundedCornerShape(12.dp))
+                        .background(
+                            MaterialTheme.colorScheme.primaryContainer,
+                            RoundedCornerShape(12.dp)
+                        )
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(type.label, style = MaterialTheme.typography.titleMedium, color = Color.White)
-                    Text("$count adet", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    Text(
+                        type.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        "$count Adet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
                 }
             }
         }
@@ -425,10 +483,14 @@ private fun WorkingDayDistributionCard(distribution: Map<DayOfWeek, Int>) {
                 }
                 
                 val isWeekend = dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY
-                val backgroundColor = if (isWeekend) 
-                    Color(0xFFFF5722).copy(alpha = 0.6f)
-                else 
-                    Color(0xFF4CAF50).copy(alpha = 0.6f)
+                val backgroundColor = if (isWeekend)
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f)
+                else
+                    MaterialTheme.colorScheme.tertiaryContainer
+                val textColor = if (isWeekend)
+                    MaterialTheme.colorScheme.onTertiary
+                else
+                    MaterialTheme.colorScheme.onTertiaryContainer
                 
                 Row(
                     modifier = Modifier
@@ -438,14 +500,14 @@ private fun WorkingDayDistributionCard(distribution: Map<DayOfWeek, Int>) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        dayName, 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), 
-                        color = Color.White
+                        dayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = textColor
                     )
                     Text(
-                        "$count nöbet", 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold), 
-                        color = Color.White
+                        "$count Nöbet",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = textColor
                     )
                 }
             }
@@ -482,10 +544,14 @@ private fun DayShiftDistributionCard(distribution: Map<DayOfWeek, Int>) {
                 }
                 
                 val isWeekend = dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY
-                val backgroundColor = if (isWeekend) 
-                    Color(0xFF388E3C).copy(alpha = 0.8f) // Darker green for weekend
-                else 
-                    Color(0xFF4CAF50).copy(alpha = 0.8f) // Green for weekdays
+                val backgroundColor = if (isWeekend)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                else
+                    MaterialTheme.colorScheme.primaryContainer
+                val textColor = if (isWeekend)
+                    MaterialTheme.colorScheme.onPrimary
+                else
+                    MaterialTheme.colorScheme.onPrimaryContainer
                 
                 Row(
                     modifier = Modifier
@@ -495,14 +561,14 @@ private fun DayShiftDistributionCard(distribution: Map<DayOfWeek, Int>) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        dayName, 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), 
-                        color = Color.White
+                        dayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = textColor
                     )
                     Text(
-                        "$count nöbet", 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold), 
-                        color = Color.White
+                        "$count Nöbet",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = textColor
                     )
                 }
             }
@@ -539,10 +605,14 @@ private fun NightShiftDistributionCard(distribution: Map<DayOfWeek, Int>) {
                 }
                 
                 val isWeekend = dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY
-                val backgroundColor = if (isWeekend) 
-                    Color(0xFF7B1FA2).copy(alpha = 0.8f) // Darker purple for weekend
-                else 
-                    Color(0xFF9575CD).copy(alpha = 0.8f) // Purple for weekdays
+                val backgroundColor = if (isWeekend)
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.85f)
+                else
+                    MaterialTheme.colorScheme.secondaryContainer
+                val textColor = if (isWeekend)
+                    MaterialTheme.colorScheme.onSecondary
+                else
+                    MaterialTheme.colorScheme.onSecondaryContainer
                 
                 Row(
                     modifier = Modifier
@@ -552,14 +622,14 @@ private fun NightShiftDistributionCard(distribution: Map<DayOfWeek, Int>) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        dayName, 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium), 
-                        color = Color.White
+                        dayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = textColor
                     )
                     Text(
-                        "$count nöbet", 
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold), 
-                        color = Color.White
+                        "$count Nöbet",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = textColor
                     )
                 }
             }
@@ -652,6 +722,188 @@ private fun ArifeDayAdjustmentsCard(
                 "Tatil günlerinde nöbetler maksimum 5 saat olarak hesaplanır.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnnualLeaveCard(count: Int, annualLeaveSettings: AnnualLeaveSettings? = null) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Yıllık İzin (Yİ)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ShiftType.ANNUAL_LEAVE.color, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(ShiftType.ANNUAL_LEAVE.label, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Text("$count Gün", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            }
+            
+            Text(
+                "Not: Yıllık izin günleri çalışılan günlerden düşülür.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            
+            // Show remaining annual leave if settings are provided or use default settings
+            val settings = annualLeaveSettings ?: AnnualLeaveSettings()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (settings.remainingAnnualLeaveDays > 0) 
+                            Color.Green.copy(alpha = 0.2f) 
+                        else 
+                            Color.Red.copy(alpha = 0.2f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Kalan İzin:", 
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "${settings.remainingAnnualLeaveDays} gün",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+// New Annual Leave Summary Card for yearly statistics
+@Composable
+private fun AnnualLeaveSummaryCard(annualLeaveSettings: AnnualLeaveSettings) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Yıllık İzin Özeti",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Toplam İzin Hakkı:", 
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    "${annualLeaveSettings.totalAnnualLeaveDays} gün",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Kullanılan İzin:", 
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    "${annualLeaveSettings.usedAnnualLeaveDays} gün",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (annualLeaveSettings.remainingAnnualLeaveDays > 0) 
+                            Color.Green.copy(alpha = 0.3f) 
+                        else 
+                            Color.Red.copy(alpha = 0.3f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Kalan İzin:", 
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+                Text(
+                    "${annualLeaveSettings.remainingAnnualLeaveDays} gün",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportCard(count: Int) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Rapor (RP)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ShiftType.REPORT.color, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(ShiftType.REPORT.label, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Text("$count adet", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            }
+            
+            Text(
+                "Not: Rapor günleri çalışılan günlerden düşülür.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
     }
@@ -756,10 +1008,17 @@ fun exportMonthlyStatistics(
     val holidays = vm.getHolidaysForMonth(month)
     val arifeDayAdjustments = getArifeDayAdjustments(vm, month)
     
+    // Count annual leave and report days for the month
+    val currentMonthShifts = vm.schedule.filter { (date, _) -> YearMonth.from(date) == month }
+    val annualLeaveCount = currentMonthShifts.filter { (_, type) -> type == ShiftType.ANNUAL_LEAVE }.size
+    val reportCount = currentMonthShifts.filter { (_, type) -> type == ShiftType.REPORT }.size
+    
     pdfExporter.exportMonthlyStatistics(
         monthlyStats = monthlyStats,
         holidays = holidays,
         arifeDayAdjustments = arifeDayAdjustments,
+        annualLeaveCount = annualLeaveCount,
+        reportCount = reportCount,
         onSuccess = { uri ->
             if (shareMode) {
                 pdfExporter.sharePdf(uri)
@@ -782,9 +1041,30 @@ fun exportYearlyStatistics(
     onResult: (String) -> Unit
 ) {
     val yearlyStats = vm.calculateYearlyStatistics(year)
+    val annualLeaveSettings = vm.annualLeaveSettings
+    
+    // Count annual leave and report days for the year
+    val yearStart = YearMonth.of(year, 1)
+    val yearEnd = YearMonth.of(year, 12)
+    val annualLeaveCount = yearStart.atDay(1).let { start ->
+        val end = yearEnd.atEndOfMonth()
+        generateSequence(start) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(end) }
+            .count { date -> vm.schedule[date] == ShiftType.ANNUAL_LEAVE }
+    }
+    
+    val reportCount = yearStart.atDay(1).let { start ->
+        val end = yearEnd.atEndOfMonth()
+        generateSequence(start) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(end) }
+            .count { date -> vm.schedule[date] == ShiftType.REPORT }
+    }
     
     pdfExporter.exportYearlyStatistics(
         yearlyStats = yearlyStats,
+        annualLeaveSettings = annualLeaveSettings,
+        annualLeaveCount = annualLeaveCount,
+        reportCount = reportCount,
         onSuccess = { uri ->
             if (shareMode) {
                 pdfExporter.sharePdf(uri)

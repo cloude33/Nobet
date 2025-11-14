@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Nobet</string>
+    <string name="google_drive_backup_success">Google Drive\'a yedekleme başarılı!</string>
+    <string name="google_drive_backup_failed">Google Drive yedekleme başarısız!</string>
+    <string name="google_drive_signin_failed">Google Sign-In failed: %1$s</string>
+    <string name="google_drive_backup_started">Google Drive yedekleme başlatılıyor...</string>
+    <string name="google_drive_restore_not_implemented">Google Drive geri yükleme henüz uygulanmadı</string>
 </resources>

@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.example.nobet.ui.calendar.ScheduleData
 import com.example.nobet.ui.calendar.ShiftType
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -35,13 +36,27 @@ class NotificationScheduler(private val context: Context) {
             
             try {
                 val gson = Gson()
-                val type = object : TypeToken<Map<String, String>>() {}.type
-                val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
                 
-                return stringMap.mapKeys { (dateStr, _) ->
-                    LocalDate.parse(dateStr)
-                }.mapValues { (_, shiftTypeStr) ->
-                    ShiftType.valueOf(shiftTypeStr)
+                // Try to parse as new ScheduleData format first
+                try {
+                    val scheduleData: ScheduleData = gson.fromJson(scheduleJson, ScheduleData::class.java)
+                    val stringMap: Map<String, String> = scheduleData.schedule
+                    
+                    return stringMap.mapKeys { (dateStr, _) ->
+                        LocalDate.parse(dateStr)
+                    }.mapValues { (_, shiftTypeStr) ->
+                        ShiftType.valueOf(shiftTypeStr)
+                    }
+                } catch (e: Exception) {
+                    // Fallback to old format for backward compatibility
+                    val type = object : TypeToken<Map<String, String>>() {}.type
+                    val stringMap: Map<String, String> = gson.fromJson(scheduleJson, type)
+                    
+                    return stringMap.mapKeys { (dateStr, _) ->
+                        LocalDate.parse(dateStr)
+                    }.mapValues { (_, shiftTypeStr) ->
+                        ShiftType.valueOf(shiftTypeStr)
+                    }
                 }
             } catch (e: Exception) {
                 return emptyMap()
@@ -140,6 +155,11 @@ class NotificationScheduler(private val context: Context) {
     }
     
     fun scheduleAllRemindersForShift(date: LocalDate, shiftType: ShiftType): Boolean {
+        // Skip notifications for annual leave and report days
+        if (shiftType == ShiftType.ANNUAL_LEAVE || shiftType == ShiftType.REPORT) {
+            return true // Consider as successful since no notifications needed
+        }
+        
         val reminderDaysList = getReminderDaysList()
         var successCount = 0
         val errors = mutableListOf<Exception>()
@@ -165,6 +185,11 @@ class NotificationScheduler(private val context: Context) {
     }
     
     fun cancelAllRemindersForShift(date: LocalDate, shiftType: ShiftType) {
+        // Skip cancellation for annual leave and report days since they don't have notifications
+        if (shiftType == ShiftType.ANNUAL_LEAVE || shiftType == ShiftType.REPORT) {
+            return
+        }
+        
         for (days in DEFAULT_REMINDER_DAYS) {
             cancelShiftReminder(date, shiftType, days)
         }
@@ -203,6 +228,8 @@ class NotificationScheduler(private val context: Context) {
             ShiftType.MORNING -> date.atTime(8, 0)  // 08:00
             ShiftType.NIGHT -> date.atTime(16, 0)   // 16:00
             ShiftType.FULL -> date.atTime(8, 0)     // 08:00 (24-hour shift)
+            // Annual leave and report days don't have specific start times
+            ShiftType.ANNUAL_LEAVE, ShiftType.REPORT -> date.atTime(8, 0) // Default time, won't be used
         }
     }
     
