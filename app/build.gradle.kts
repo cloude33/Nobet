@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,37 +8,38 @@ plugins {
 }
 
 android {
-    namespace = "com.hbulut.nobettakvimi"
+    namespace = "com.example.nobet"
     compileSdk = 36
 
     // Load keystore properties
     val keystorePropertiesFile = rootProject.file("keystore.properties")
-    val keystoreProperties = java.util.Properties()
+    val keystoreProperties = Properties()
     if (keystorePropertiesFile.exists()) {
-        keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
+        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
     }
 
     defaultConfig {
-        applicationId = "com.hbulut.nobettakvimi"
-        minSdk = 24
+        applicationId = "com.example.nobet"
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    
+
     signingConfigs {
         create("release") {
             if (keystoreProperties.isNotEmpty()) {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
+                // Step 2: Remove unnecessary "as String" conversions and use toString()
+                keyAlias = keystoreProperties["keyAlias"].toString()
+                keyPassword = keystoreProperties["keyPassword"].toString()
+                storeFile = file(keystoreProperties["storeFile"].toString())
+                storePassword = keystoreProperties["storePassword"].toString()
             }
         }
     }
-    
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -51,27 +55,27 @@ android {
             isShrinkResources = false
         }
     }
-    
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17  // 2025 standardı
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
         isCoreLibraryDesugaringEnabled = true
     }
-    
+
     kotlin {
-        jvmToolchain(17) // kotlinOptions yerine yeni yöntem (Kotlin 1.9+)
+        jvmToolchain(21)
     }
 
     buildFeatures {
         compose = true
         viewBinding = true
     }
-    
+
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15" // Direct version reference
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
-    
-    // META-INF duplicate hatasını %100 çözen en güncel yöntem
+
+    // Step 3: Use a single packaging block
     packaging {
         resources {
             excludes += setOf(
@@ -85,110 +89,67 @@ android {
                 "META-INF/AL2.0",
                 "META-INF/LGPL2.1",
                 "META-INF/*.kotlin_module",
-                "androidx/annotation/experimental/R.class",
-                "androidx/annotation/R.class"
-            )
-        }
-        jniLibs {
-            pickFirsts += setOf(
-                "META-INF/androidx.annotation_annotation-experimental.version",
-                "androidx/annotation/experimental/R.class",
-                "androidx/annotation/R.class"
-            )
-            excludes += setOf(
-                "androidx/annotation/experimental/R.class"
-            )
-        }
-        resources {
-            pickFirsts += setOf(
-                "META-INF/androidx.annotation_annotation-experimental.version",
-                "androidx/annotation/experimental/R.class",
-                "androidx/annotation/R.class"
-            )
-            excludes += setOf(
-                "androidx/annotation/experimental/R.class"
+                "META-INF/androidx.annotation_annotation-experimental.version"
             )
         }
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
     buildToolsVersion = "36.1.0"
-    ndkVersion = "27.0.12077973"
-    dependenciesInfo {
-        includeInApk = true
-        includeInBundle = true
-    }
 
-    // Add this to handle duplicate class issue more comprehensively
+
     configurations.all {
         resolutionStrategy {
-            preferProjectModules()
             force("androidx.annotation:annotation:1.9.1")
-            force("androidx.annotation:annotation-experimental:1.4.1")
+            force("androidx.annotation:annotation-experimental:1.5.1")
         }
     }
 }
-// Add a task to delete the problematic file before build
 
 dependencies {
-    // Desugar – en güncel sürüm
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    
-    // Force specific version of annotation library to avoid duplicates
-    implementation("androidx.annotation:annotation:1.9.1")
-    implementation("androidx.annotation:annotation-experimental:1.5.1") {
-        because("Resolving duplicate R.class issue")
-    }
-    
+
     // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation(libs.androidx.activity.compose)
-    
-    // Compose BOM – 2025.3 güncel
+
+    // Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
-    
-    // Google Drive API – Using libs.versions.toml
+
+    // Google Drive API
     implementation(libs.google.auth)
     implementation(libs.google.api.client)
     implementation(libs.google.api.services.drive)
-    implementation(libs.google.http.client.gson) {
-        exclude(group = "androidx.annotation", module = "annotation")
-        exclude(group = "androidx.annotation", module = "annotation-experimental")
-    }
-    
+    implementation(libs.google.http.client.gson)
+
     // Calendar & Utils
-    implementation("io.github.boguszpawlowski.composecalendar:composecalendar:1.4.0") {
-        exclude(group = "androidx.annotation", module = "annotation")
-        exclude(group = "androidx.annotation", module = "annotation-experimental")
-    }
+    implementation("io.github.boguszpawlowski.composecalendar:composecalendar:1.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
     implementation("com.google.code.gson:gson:2.13.2")
-    
-    // PDF Export – Using libs.versions.toml
-    implementation(libs.itext7.core) {
-        exclude(group = "androidx.annotation", module = "annotation")
-        exclude(group = "androidx.annotation", module = "annotation-experimental")
-    }
-    implementation("androidx.documentfile:documentfile:1.1.0") {
-        exclude(group = "androidx.annotation", module = "annotation")
-        exclude(group = "androidx.annotation", module = "annotation-experimental")
-    }
-    
+
+    // PDF Export
+    implementation(libs.itext7.core)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("androidx.documentfile:documentfile:1.1.0")
+    // XML processing dependencies
+    implementation("javax.xml.stream:stax-api:1.0-2")
+
     // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
-    
+
     // Debug
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
